@@ -1,0 +1,25 @@
+<resources>
+    <string name="app_name">Simple Gallery</string>
+    <string name="tab_timeline">Timeline</string>
+    <string name="tab_albums">Albums</string>
+    <string name="tab_favorites">Favorites</string>
+    <string name="tab_vault">Vault</string>
+    <string name="tab_trash">Trash</string>
+    <string name="search_placeholder">Search photos, tags, albums, camera…</string>
+    <string name="import_photos">Import Photos</string>
+    <string name="capture_photo">Take Photo</string>
+    <string name="create_album">New Album</string>
+    <string name="empty_gallery_title">No photos match your filter</string>
+    <string name="empty_gallery_subtitle">Import photos from your device picker, capture a new shot, or clear active search filters.</string>
+    <string name="empty_favorites_title">No favorite moments yet</string>
+    <string name="empty_favorites_subtitle">Tap the heart icon on any photo to curate your personal highlights reel.</string>
+    <string name="empty_trash_title">Recycle Bin is clean</string>
+    <string name="empty_trash_subtitle">Deleted photos stay here safely until you restore or permanently remove them.</string>
+    <string name="vault_locked_title">Private Photo Vault</string>
+    <string name="vault_locked_subtitle">Enter your 4-digit PIN to unlock hidden photos and private captures.</string>
+    <string name="editor_title">Darkroom Studio</string>
+    <string name="save_copy">Save as Copy</string>
+    <string name="overwrite_original">Overwrite</string>
+    <string name="slideshow_title">Slideshow</string>
+    <string name="exif_inspector">EXIF &amp; File Details</string>
+</resources>

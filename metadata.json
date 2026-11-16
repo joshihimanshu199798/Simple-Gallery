@@ -1,0 +1,6 @@
+{
+  "name": "Simple Gallery",
+  "description": "Fast photo gallery with albums, image editor, and private vault.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
