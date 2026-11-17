@@ -21,6 +21,15 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses and install SDK 36.1
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-36.1" "build-tools;36.0.0" || \
+            sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" || true
+
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -28,15 +37,24 @@ jobs:
 
       - name: Prepare debug keystore and environment config
         run: |
-          if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
+          if [ -f debug.keystore.base64 ]; then
+            base64 -di debug.keystore.base64 > debug.keystore 2>/dev/null || base64 -d debug.keystore.base64 > debug.keystore || true
+          fi
+          if ! keytool -list -keystore debug.keystore -storepass android >/dev/null 2>&1; then
+            rm -f debug.keystore
+            keytool -genkeypair -noprompt -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
           if [ -f .env.example ] && [ ! -f .env ]; then
             cp .env.example .env
           fi
 
       - name: Build Debug APK
-        run: gradle assembleDebug
+        env:
+          GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
+        run: |
+          gradle assembleDebug \
+            --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
