@@ -65,6 +65,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -107,12 +110,14 @@ fun StudioCollageWorkspace(
     modifier: Modifier = Modifier
 ) {
     BackHandler { onClose() }
+    val context = LocalContext.current
 
     val selectedPaths = remember {
         mutableStateListOf<String>().apply {
             addAll(allPhotos.take(4).map { it.filePath })
         }
     }
+    var showPhotoPickerSheet by remember { mutableStateOf(false) }
 
     var layoutMode by remember { mutableStateOf(CollageLayoutMode.BENTO_HERO) }
     var aspectRatio by remember { mutableStateOf(CropAspectRatio.SQUARE) }
@@ -245,7 +250,9 @@ fun StudioCollageWorkspace(
                                     ) {
                                         if (path != null) {
                                             AsyncImage(
-                                                model = PhotoImageProcessor.resolveCoilModel(path),
+                                                model = remember(path) {
+                                                    PhotoImageProcessor.buildThumbnailRequest(context, path, 512, 512)
+                                                },
                                                 contentDescription = label,
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier.fillMaxSize()
@@ -284,8 +291,11 @@ fun StudioCollageWorkspace(
                                             .weight(0.58f)
                                             .clip(RoundedCornerShape(cornerRadiusDp.dp))
                                     ) {
+                                        val heroPath = selectedPaths[0]
                                         AsyncImage(
-                                            model = PhotoImageProcessor.resolveCoilModel(selectedPaths[0]),
+                                            model = remember(heroPath) {
+                                                PhotoImageProcessor.buildThumbnailRequest(context, heroPath, 640, 640)
+                                            },
                                             contentDescription = null,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize()
@@ -300,6 +310,7 @@ fun StudioCollageWorkspace(
                                         horizontalArrangement = Arrangement.spacedBy(spacingDp.dp)
                                     ) {
                                         for (i in 1 until selectedPaths.size.coerceAtMost(5)) {
+                                            val slotPath = selectedPaths[i]
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
@@ -307,7 +318,9 @@ fun StudioCollageWorkspace(
                                                     .clip(RoundedCornerShape(cornerRadiusDp.dp))
                                             ) {
                                                 AsyncImage(
-                                                    model = PhotoImageProcessor.resolveCoilModel(selectedPaths[i]),
+                                                    model = remember(slotPath) {
+                                                        PhotoImageProcessor.buildThumbnailRequest(context, slotPath, 400, 400)
+                                                    },
                                                     contentDescription = null,
                                                     contentScale = ContentScale.Crop,
                                                     modifier = Modifier.fillMaxSize()
@@ -333,7 +346,9 @@ fun StudioCollageWorkspace(
                                             .clip(RoundedCornerShape(cornerRadiusDp.dp))
                                     ) {
                                         AsyncImage(
-                                            model = PhotoImageProcessor.resolveCoilModel(path),
+                                            model = remember(path) {
+                                                PhotoImageProcessor.buildThumbnailRequest(context, path, 512, 512)
+                                            },
                                             contentDescription = null,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize()
@@ -493,21 +508,57 @@ fun StudioCollageWorkspace(
                     valueText = "${cornerRadiusDp.toInt()} dp"
                 )
 
-                // Photo selector strip (toggle inclusion)
-                Text(
-                    text = "TAP PHOTOS TO INCLUDE (2–20):",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                    color = TextMuted
-                )
+                // Photo selector strip (toggle inclusion) + Browse Grid button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "SELECT PHOTOS (2–20): ${selectedPaths.size} SELECTED",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = TextMuted
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = NeonGreen.copy(alpha = 0.16f),
+                        border = BorderStroke(1.dp, NeonGreen),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable { showPhotoPickerSheet = true }
+                            .testTag("collage_browse_photos_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoLibrary,
+                                contentDescription = null,
+                                tint = NeonGreen,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "Browse Grid (${allPhotos.size})",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = NeonGreen
+                            )
+                        }
+                    }
+                }
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(allPhotos, key = { it.id }) { photo ->
+                    items(allPhotos.take(80), key = { it.id }) { photo ->
                         val isSelected = photo.filePath in selectedPaths
+                        val thumbReq = remember(photo.id, photo.filePath) {
+                            PhotoImageProcessor.buildThumbnailRequest(context, photo.filePath, 160, 160)
+                        }
                         Box(
                             modifier = Modifier
-                                .size(50.dp)
+                                .size(56.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .border(
                                     width = if (isSelected) 2.dp else 0.5.dp,
@@ -523,7 +574,7 @@ fun StudioCollageWorkspace(
                                 }
                         ) {
                             AsyncImage(
-                                model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                                model = thumbReq,
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
@@ -555,6 +606,27 @@ fun StudioCollageWorkspace(
                     }
                 }
             }
+        }
+
+        if (showPhotoPickerSheet) {
+            val selectedIdSet = remember(selectedPaths.toList(), allPhotos) {
+                allPhotos.filter { it.filePath in selectedPaths }.map { it.id }.toSet()
+            }
+            StudioPhotoPickerSheet(
+                photos = allPhotos,
+                selectedIds = selectedIdSet,
+                isMultiSelect = true,
+                maxSelection = 20,
+                title = "Select 2–20 Photos for Collage",
+                onDismiss = { showPhotoPickerSheet = false },
+                onConfirmMultiSelect = { chosen ->
+                    if (chosen.isNotEmpty()) {
+                        selectedPaths.clear()
+                        selectedPaths.addAll(chosen.take(20).map { it.filePath })
+                    }
+                    showPhotoPickerSheet = false
+                }
+            )
         }
     }
 }

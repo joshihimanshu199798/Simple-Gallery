@@ -68,16 +68,49 @@ object PhotoImageProcessor {
         }
     }
 
-    fun buildThumbnailRequest(context: Context, pathOrUri: String, widthPx: Int = 480, heightPx: Int = 480): coil.request.ImageRequest {
+    fun thumbnailMemoryCacheKey(pathOrUri: String): coil.memory.MemoryCache.Key {
+        return coil.memory.MemoryCache.Key("thumb_$pathOrUri")
+    }
+
+    fun buildThumbnailRequest(
+        context: Context,
+        pathOrUri: String,
+        widthPx: Int = 360,
+        heightPx: Int = 360
+    ): coil.request.ImageRequest {
         val model = resolveCoilModel(pathOrUri)
+        val cacheKey = "thumb_$pathOrUri"
         return coil.request.ImageRequest.Builder(context)
             .data(model)
             .size(widthPx, heightPx)
             .scale(coil.size.Scale.FILL)
             .precision(coil.size.Precision.INEXACT)
+            .bitmapConfig(Bitmap.Config.RGB_565)
             .allowHardware(true)
-            .crossfade(true)
-            .crossfade(140)
+            .memoryCacheKey(cacheKey)
+            .diskCacheKey(cacheKey)
+            .crossfade(false)
+            .build()
+    }
+
+    fun buildPreviewRequest(
+        context: Context,
+        pathOrUri: String,
+        maxDimensionPx: Int = 2048
+    ): coil.request.ImageRequest {
+        val model = resolveCoilModel(pathOrUri)
+        val thumbKey = thumbnailMemoryCacheKey(pathOrUri)
+        val previewKey = "preview_${maxDimensionPx}_$pathOrUri"
+        return coil.request.ImageRequest.Builder(context)
+            .data(model)
+            .placeholderMemoryCacheKey(thumbKey)
+            .memoryCacheKey(previewKey)
+            .diskCacheKey(previewKey)
+            .size(maxDimensionPx, maxDimensionPx)
+            .scale(coil.size.Scale.FIT)
+            .precision(coil.size.Precision.INEXACT)
+            .allowHardware(true)
+            .crossfade(false)
             .build()
     }
 

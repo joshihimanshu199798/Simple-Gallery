@@ -32,12 +32,14 @@ import com.example.service.AiPhotoOrganizerService
 import com.example.ui.theme.AppThemeCatalog
 import com.example.ui.theme.CompleteUiThemeSpec
 import com.example.ui.theme.GalleryLayoutStyle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -178,10 +180,10 @@ class GalleryViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allVisiblePhotos: StateFlow<List<PhotoEntity>> = repository.visiblePhotosFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val favoritePhotos: StateFlow<List<PhotoEntity>> = repository.favoritePhotosFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val vaultPhotos: StateFlow<List<PhotoEntity>> = repository.vaultPhotosFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -205,7 +207,7 @@ class GalleryViewModel(
             AlbumSortOption.SIZE_ASC -> albumList.sortedBy { it.totalBytes }
             AlbumSortOption.COUNT_DESC -> albumList.sortedByDescending { it.photoCount }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun updateAlbumSortOption(option: AlbumSortOption) {
         _albumSortOption.value = option
@@ -222,7 +224,7 @@ class GalleryViewModel(
         listOf("All", "Favorites", "Edited") + extracted.filter {
             it != "Edited" && it != "Favorites"
         }
-    }.stateIn(
+    }.flowOn(Dispatchers.Default).stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         listOf("All", "Favorites", "Edited")
@@ -233,35 +235,39 @@ class GalleryViewModel(
         _filterState
     ) { photos, filter ->
         val query = filter.searchQuery.trim().lowercase()
-        val distinctPhotos = photos.distinctBy { photo ->
-            val fileName = photo.filePath.substringAfterLast('/')
-            "$fileName:${photo.sizeBytes}"
-        }
-        val filtered = distinctPhotos.filter { photo ->
-            val matchesAlbum = filter.selectedAlbumName == null ||
-                photo.albumName.equals(filter.selectedAlbumName, ignoreCase = true)
+        val hasAlbumFilter = filter.selectedAlbumName != null
+        val hasTagFilter = filter.selectedTag != "All" && filter.selectedTag.isNotBlank()
+        val hasSearch = query.isNotEmpty()
 
-            val matchesTag = photo.matchesCategory(filter.selectedTag)
+        val filtered = if (!hasAlbumFilter && !hasTagFilter && !hasSearch) {
+            photos
+        } else {
+            photos.filter { photo ->
+                val matchesAlbum = !hasAlbumFilter ||
+                    photo.albumName.equals(filter.selectedAlbumName, ignoreCase = true)
 
-            val matchesSearch = query.isEmpty() ||
-                photo.title.lowercase().contains(query) ||
-                photo.fileName.lowercase().contains(query) ||
-                photo.dateHeader.lowercase().contains(query) ||
-                photo.shortDateText.lowercase().contains(query) ||
-                photo.isoDateText.lowercase().contains(query) ||
-                photo.fullTimestampText.lowercase().contains(query) ||
-                photo.relativeDateGroup().lowercase().contains(query) ||
-                photo.albumName.lowercase().contains(query) ||
-                photo.tags.lowercase().contains(query) ||
-                photo.locationTag.lowercase().contains(query) ||
-                photo.cameraModel.lowercase().contains(query) ||
-                photo.notes.lowercase().contains(query)
+                val matchesTag = !hasTagFilter || photo.matchesCategory(filter.selectedTag)
 
-            matchesAlbum && matchesTag && matchesSearch
+                val matchesSearch = !hasSearch ||
+                    photo.title.lowercase().contains(query) ||
+                    photo.fileName.lowercase().contains(query) ||
+                    photo.dateHeader.lowercase().contains(query) ||
+                    photo.shortDateText.lowercase().contains(query) ||
+                    photo.isoDateText.lowercase().contains(query) ||
+                    photo.fullTimestampText.lowercase().contains(query) ||
+                    photo.relativeDateGroup().lowercase().contains(query) ||
+                    photo.albumName.lowercase().contains(query) ||
+                    photo.tags.lowercase().contains(query) ||
+                    photo.locationTag.lowercase().contains(query) ||
+                    photo.cameraModel.lowercase().contains(query) ||
+                    photo.notes.lowercase().contains(query)
+
+                matchesAlbum && matchesTag && matchesSearch
+            }
         }
 
         when (filter.sortOption) {
-            SortOption.DATE_DESC -> filtered.sortedByDescending { it.dateTaken }
+            SortOption.DATE_DESC -> filtered
             SortOption.DATE_ASC -> filtered.sortedBy { it.dateTaken }
             SortOption.NAME_ASC -> filtered.sortedBy { it.title.lowercase() }
             SortOption.NAME_DESC -> filtered.sortedByDescending { it.title.lowercase() }
@@ -269,7 +275,7 @@ class GalleryViewModel(
             SortOption.SIZE_ASC -> filtered.sortedBy { it.sizeBytes }
             SortOption.RESOLUTION_DESC -> filtered.sortedByDescending { it.width.toLong() * it.height.toLong() }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val mediaStoreObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) {
@@ -286,7 +292,7 @@ class GalleryViewModel(
             )
         } catch (_: Exception) {
         }
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.ensureSeeded()
             repository.syncDeviceMediaStorePhotos()
         }
@@ -979,7 +985,6 @@ class GalleryViewModel(
     fun openLightbox(photo: PhotoEntity, startSlideshow: Boolean = false) {
         _activeLightboxPhotoId.value = photo.id
         _isSlideshowPlaying.value = startSlideshow
-        loadHistogramForPhoto(photo)
     }
 
     fun closeLightbox() {

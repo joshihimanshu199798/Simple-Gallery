@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.FilterVintage
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Tune
@@ -160,6 +161,9 @@ private enum class DetailParam(val label: String, val min: Float, val max: Float
 @Composable
 fun StudioEditorWorkspace(
     photo: PhotoEntity,
+    allPhotos: List<PhotoEntity> = emptyList(),
+    onSelectPhoto: (PhotoEntity) -> Unit = {},
+    onPickFromDevice: (() -> Unit)? = null,
     initialTab: EditorToolTab = EditorToolTab.LIGHT,
     onClose: () -> Unit,
     onSaveEdits: (
@@ -198,6 +202,7 @@ fun StudioEditorWorkspace(
     var userRecipes by remember { mutableStateOf(StudioPreferenceStore.loadUserRecipes(context)) }
     var showSaveRecipeDialog by remember { mutableStateOf(false) }
     var showHistogramOverlay by remember { mutableStateOf(true) }
+    var showPhotoPickerSheet by remember { mutableStateOf(false) }
 
     data class EditSnapshot(
         val exposure: Float,
@@ -547,6 +552,44 @@ fun StudioEditorWorkspace(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                // Select / Switch Photo Pill
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = CardBg,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, NeonGreen.copy(alpha = 0.6f)),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable {
+                            if (allPhotos.isNotEmpty()) {
+                                showPhotoPickerSheet = true
+                            } else {
+                                onPickFromDevice?.invoke()
+                            }
+                        }
+                        .testTag("editor_select_photo_btn")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoLibrary,
+                            contentDescription = "Select Photo",
+                            tint = NeonGreen,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = "Photo",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            ),
+                            color = TextWhite
+                        )
+                    }
+                }
+
                 // Live RGB Histogram Toggle Pill
                 Surface(
                     shape = RoundedCornerShape(50),
@@ -568,6 +611,26 @@ fun StudioEditorWorkspace(
                         ),
                         color = if (showHistogramOverlay) NeonGreen else TextMuted,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                    )
+                }
+
+                if (showPhotoPickerSheet) {
+                    StudioPhotoPickerSheet(
+                        photos = allPhotos,
+                        selectedIds = setOf(photo.id),
+                        isMultiSelect = false,
+                        title = "Select Photo to Edit",
+                        onDismiss = { showPhotoPickerSheet = false },
+                        onSelectSinglePhoto = { chosen ->
+                            onSelectPhoto(chosen)
+                            showPhotoPickerSheet = false
+                        },
+                        onPickFromDevice = onPickFromDevice?.let { pick ->
+                            {
+                                showPhotoPickerSheet = false
+                                pick()
+                            }
+                        }
                     )
                 }
 
@@ -846,8 +909,11 @@ fun StudioEditorWorkspace(
                         bottom = bottomFramePadDp
                     )
             ) {
+                val editorPreviewModel = remember(photo.id, photo.filePath) {
+                    PhotoImageProcessor.buildPreviewRequest(context, photo.filePath, 1600)
+                }
                 AsyncImage(
-                    model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                    model = editorPreviewModel,
                     contentDescription = photo.title,
                     contentScale = if (cropRatio != CropAspectRatio.ORIGINAL) ContentScale.Crop else ContentScale.Fit,
                     colorFilter = ColorFilter.colorMatrix(liveColorMatrix),

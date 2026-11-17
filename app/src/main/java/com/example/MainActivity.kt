@@ -189,7 +189,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Optimized Coil ImageLoader with 35% memory cache and 200MB disk cache for instant photo browsing
+        // Optimized Coil ImageLoader with 35% memory cache, 200MB disk cache, hardware bitmaps, and zero crossfade lag
         val imageLoader = ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
@@ -202,8 +202,10 @@ class MainActivity : ComponentActivity() {
                     .maxSizeBytes(200L * 1024 * 1024)
                     .build()
             }
+            .allowHardware(true)
+            .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
             .respectCacheHeaders(false)
-            .crossfade(true)
+            .crossfade(false)
             .build()
         Coil.setImageLoader(imageLoader)
 
@@ -412,11 +414,16 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
         viewModel.syncDeviceGalleryAutomatically(silent = false)
     }
 
-    // Observe permission state transitions and scan local photos immediately when granted
+    // Observe permission state transitions and only run a visible rescan when permission newly transitions from denied -> granted
+    var previousPermissionGranted by remember { mutableStateOf(checkMediaReadPermission(context)) }
     LaunchedEffect(mediaPermissionState.status.isGranted, hasMediaPermission) {
-        if (mediaPermissionState.status.isGranted || hasMediaPermission) {
+        val currentlyGranted = mediaPermissionState.status.isGranted || hasMediaPermission
+        if (currentlyGranted) {
             systemPermissionGranted = true
-            viewModel.syncDeviceGalleryAutomatically(silent = false)
+            if (!previousPermissionGranted) {
+                previousPermissionGranted = true
+                viewModel.syncDeviceGalleryAutomatically(silent = false)
+            }
         }
     }
 
@@ -424,7 +431,7 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
     LaunchedEffect(Unit) {
         if (checkMediaReadPermission(context)) {
             systemPermissionGranted = true
-            viewModel.syncDeviceGalleryAutomatically(silent = true)
+            previousPermissionGranted = true
         } else {
             requestMediaPermissions()
         }
@@ -1190,6 +1197,9 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
                             .testTag("delete_dialog_preview_strip")
                     ) {
                         items(targetPhotos.take(8), key = { it.id }) { photoItem ->
+                            val delThumbModel = remember(photoItem.id, photoItem.filePath) {
+                                PhotoImageProcessor.buildThumbnailRequest(context, photoItem.filePath, 160, 160)
+                            }
                             Card(
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier
@@ -1197,7 +1207,7 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
                                     .border(1.dp, activeTheme.borderStroke, RoundedCornerShape(10.dp))
                             ) {
                                 AsyncImage(
-                                    model = PhotoImageProcessor.resolveCoilModel(photoItem.filePath),
+                                    model = delThumbModel,
                                     contentDescription = photoItem.title,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()

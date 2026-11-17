@@ -1,5 +1,6 @@
 package com.example.ui.studio
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +24,9 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -32,11 +37,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesomeMosaic
 import androidx.compose.material.icons.filled.BrandingWatermark
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Compare
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FilterVintage
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Layers
@@ -46,19 +55,32 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.OfflineBolt
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Transform
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -69,6 +91,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -105,6 +128,8 @@ private val CyanAccent: Color
 fun StudioHomeScreen(
     photos: List<PhotoEntity>,
     activeTheme: CompleteUiThemeSpec,
+    selectedPhoto: PhotoEntity? = null,
+    onSelectPhoto: (PhotoEntity) -> Unit = {},
     onLaunchEditor: (photo: PhotoEntity?, initialTab: EditorToolTab) -> Unit,
     onLaunchCollage: () -> Unit,
     onLaunchCompression: (photo: PhotoEntity?) -> Unit,
@@ -122,19 +147,33 @@ fun StudioHomeScreen(
     onLaunchRecycleBin: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val scrollState = rememberScrollState()
-    var selectedPhotoId by remember(photos) {
-        mutableStateOf(photos.firstOrNull()?.id)
+    var selectedPhotoId by remember {
+        mutableStateOf(selectedPhoto?.id ?: photos.firstOrNull()?.id)
     }
-    val activePhoto = photos.firstOrNull { it.id == selectedPhotoId } ?: photos.firstOrNull()
+    LaunchedEffect(selectedPhoto?.id) {
+        if (selectedPhoto != null) {
+            selectedPhotoId = selectedPhoto.id
+        }
+    }
+    LaunchedEffect(photos.size) {
+        if (selectedPhotoId == null || photos.none { it.id == selectedPhotoId }) {
+            selectedPhotoId = photos.firstOrNull()?.id
+        }
+    }
+    val activePhoto = photos.firstOrNull { it.id == selectedPhotoId } ?: selectedPhoto ?: photos.firstOrNull()
+    var showPhotoPickerSheet by remember { mutableStateOf(false) }
 
-    val recentEdits = photos.filter {
-        it.appliedFilter != "Original" ||
-            it.albumName.contains("Edited", ignoreCase = true) ||
-            it.albumName.contains("Collage", ignoreCase = true) ||
-            it.albumName.contains("Studio", ignoreCase = true) ||
-            it.tags.contains("Edited", ignoreCase = true)
-    }.take(8).ifEmpty { photos.take(8) }
+    val recentEdits = remember(photos) {
+        photos.filter {
+            it.appliedFilter != "Original" ||
+                it.albumName.contains("Edited", ignoreCase = true) ||
+                it.albumName.contains("Collage", ignoreCase = true) ||
+                it.albumName.contains("Studio", ignoreCase = true) ||
+                it.tags.contains("Edited", ignoreCase = true)
+        }.take(8).ifEmpty { photos.take(8) }
+    }
 
     Column(
         modifier = modifier
@@ -152,98 +191,317 @@ fun StudioHomeScreen(
             .padding(bottom = 120.dp)
             .testTag("studio_home_screen")
     ) {
-        // 1. Standardized Studio Header with subtle Ready badge & Import Actions
+        // 1. Standardized Studio Header with Ready badge & Import Actions
         StudioHomeHeaderBanner(
             totalPhotosCount = photos.size,
             editedCount = recentEdits.size,
+            onBrowseLibraryClick = { showPhotoPickerSheet = true },
             onPickClick = onPickFromStorage,
             onCameraClick = onCaptureCamera
         )
 
-        // 2. Active Photo Selector Strip (choose which photo to edit)
-        if (photos.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // 2. Prominent Target Photo Selection Card & Strip
+        Card(
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkGraphiteCard),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .border(1.dp, NeonGreenAccent.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
+                .testTag("studio_active_photo_card")
+        ) {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Image,
-                        contentDescription = null,
-                        tint = NeonGreenAccent,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = "Active Photo",
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = TextWhite
-                    )
-                }
-                Text(
-                    text = activePhoto?.title ?: "",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = NeonGreenAccent,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("studio_target_photo_selector")
-            ) {
-                items(photos.take(30), key = { it.id }) { item ->
-                    val isSelected = item.id == activePhoto?.id
-                    Box(
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier
-                            .size(66.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .border(
-                                width = if (isSelected) 2.5.dp else 1.dp,
-                                color = if (isSelected) NeonGreenAccent else DarkGraphiteBorder,
-                                shape = RoundedCornerShape(14.dp)
-                            )
-                            .clickable { selectedPhotoId = item.id }
-                            .testTag("studio_select_photo_${item.id}")
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                if (photos.isNotEmpty()) {
+                                    showPhotoPickerSheet = true
+                                } else {
+                                    onPickFromStorage()
+                                }
+                            }
                     ) {
-                        AsyncImage(
-                            model = PhotoImageProcessor.resolveCoilModel(item.filePath),
-                            contentDescription = item.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        if (isSelected) {
-                            Surface(
-                                shape = RoundedCornerShape(bottomStart = 8.dp),
-                                color = NeonGreenAccent,
-                                modifier = Modifier.align(Alignment.TopEnd)
-                            ) {
-                                Text(
-                                    text = "ACTIVE",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.Bold
-                                    ),
-                                    color = LocalCompleteUiTheme.current.onPrimaryAccent,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(LocalCompleteUiTheme.current.surfaceVariant)
+                                .border(2.dp, NeonGreenAccent, RoundedCornerShape(14.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (activePhoto != null) {
+                                val thumbReq = remember(activePhoto.id, activePhoto.filePath) {
+                                    PhotoImageProcessor.buildThumbnailRequest(context, activePhoto.filePath, 200, 200)
+                                }
+                                AsyncImage(
+                                    model = thumbReq,
+                                    contentDescription = activePhoto.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
                                 )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.AddPhotoAlternate,
+                                    contentDescription = "No photo selected",
+                                    tint = NeonGreenAccent,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = NeonGreenDim
+                                ) {
+                                    Text(
+                                        text = "SELECTED PHOTO",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = NeonGreenAccent,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                                if (photos.isNotEmpty()) {
+                                    Text(
+                                        text = "• ${photos.size} in library",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = TextMuted
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = activePhoto?.title ?: "No Photo Selected Yet",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = TextWhite,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (activePhoto != null) {
+                                    "${activePhoto.albumName} • ${activePhoto.resolutionText} • ${activePhoto.formattedSize}"
+                                } else {
+                                    "Tap Select Photo to choose from gallery or device storage"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                // Explicit Action Buttons for selecting a photo from Library Grid or Device Storage
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            if (photos.isNotEmpty()) {
+                                showPhotoPickerSheet = true
+                            } else {
+                                onPickFromStorage()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NeonGreenAccent,
+                            contentColor = LocalCompleteUiTheme.current.onPrimaryAccent
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("studio_open_photo_picker_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoLibrary,
+                            contentDescription = null,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (photos.isNotEmpty()) "Select Photo (${photos.size})" else "Select Photo",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            maxLines = 1
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onPickFromStorage,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, DarkGraphiteBorder),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier.testTag("studio_pick_device_photo_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AddPhotoAlternate,
+                            contentDescription = null,
+                            tint = NeonGreenAccent,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "Device",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = TextWhite
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onCaptureCamera,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, DarkGraphiteBorder),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        modifier = Modifier.testTag("studio_camera_photo_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoCamera,
+                            contentDescription = "Camera",
+                            tint = NeonGreenAccent,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
+
+                // Quick Horizontal Strip of Library Photos
+                if (photos.isNotEmpty()) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("studio_target_photo_selector")
+                    ) {
+                        item(key = "browse_all_tile") {
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(NeonGreenDim)
+                                    .border(1.dp, NeonGreenAccent.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                                    .clickable { showPhotoPickerSheet = true }
+                                    .testTag("studio_browse_all_photos_tile"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.GridView,
+                                        contentDescription = "Browse All Photos",
+                                        tint = NeonGreenAccent,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "All (${photos.size})",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = NeonGreenAccent
+                                    )
+                                }
+                            }
+                        }
+
+                        items(photos.take(60), key = { it.id }) { item ->
+                            val isSelected = item.id == activePhoto?.id
+                            val thumbReq = remember(item.id, item.filePath) {
+                                PhotoImageProcessor.buildThumbnailRequest(context, item.filePath, 180, 180)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .border(
+                                        width = if (isSelected) 2.5.dp else 1.dp,
+                                        color = if (isSelected) NeonGreenAccent else DarkGraphiteBorder,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable {
+                                        selectedPhotoId = item.id
+                                        onSelectPhoto(item)
+                                    }
+                                    .testTag("studio_select_photo_${item.id}")
+                            ) {
+                                AsyncImage(
+                                    model = thumbReq,
+                                    contentDescription = item.title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                if (isSelected) {
+                                    Surface(
+                                        shape = RoundedCornerShape(bottomStart = 8.dp),
+                                        color = NeonGreenAccent,
+                                        modifier = Modifier.align(Alignment.TopEnd)
+                                    ) {
+                                        Text(
+                                            text = "ACTIVE",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Bold
+                                            ),
+                                            color = LocalCompleteUiTheme.current.onPrimaryAccent,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+
+        if (showPhotoPickerSheet) {
+            StudioPhotoPickerSheet(
+                photos = photos,
+                selectedIds = setOfNotNull(activePhoto?.id),
+                isMultiSelect = false,
+                title = "Select Photo for Studio",
+                onDismiss = { showPhotoPickerSheet = false },
+                onSelectSinglePhoto = { chosen ->
+                    selectedPhotoId = chosen.id
+                    onSelectPhoto(chosen)
+                    showPhotoPickerSheet = false
+                },
+                onPickFromDevice = {
+                    showPhotoPickerSheet = false
+                    onPickFromStorage()
+                },
+                onCaptureCamera = {
+                    showPhotoPickerSheet = false
+                    onCaptureCamera()
+                }
+            )
         }
 
         Spacer(modifier = Modifier.height(18.dp))
@@ -491,6 +749,7 @@ fun StudioHomeScreen(
 private fun StudioHomeHeaderBanner(
     totalPhotosCount: Int,
     editedCount: Int,
+    onBrowseLibraryClick: () -> Unit,
     onPickClick: () -> Unit,
     onCameraClick: () -> Unit
 ) {
@@ -521,7 +780,7 @@ private fun StudioHomeHeaderBanner(
                 Surface(
                     shape = RoundedCornerShape(50),
                     color = NeonGreenDim,
-                    border = androidx.compose.foundation.BorderStroke(
+                    border = BorderStroke(
                         1.dp,
                         NeonGreenAccent.copy(alpha = 0.35f)
                     )
@@ -550,9 +809,37 @@ private fun StudioHomeHeaderBanner(
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Surface(
+                    shape = RoundedCornerShape(50),
+                    color = LocalCompleteUiTheme.current.surfaceVariant,
+                    border = BorderStroke(1.dp, DarkGraphiteBorder),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable(onClick = onBrowseLibraryClick)
+                        .testTag("studio_header_select_photo_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Collections,
+                            contentDescription = "Select Photo",
+                            tint = NeonGreenAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Select Photo",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = TextWhite
+                        )
+                    }
+                }
+
+                Surface(
                     shape = CircleShape,
                     color = LocalCompleteUiTheme.current.surfaceVariant,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkGraphiteBorder),
+                    border = BorderStroke(1.dp, DarkGraphiteBorder),
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
@@ -572,7 +859,7 @@ private fun StudioHomeHeaderBanner(
                 Surface(
                     shape = CircleShape,
                     color = LocalCompleteUiTheme.current.surfaceVariant,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkGraphiteBorder),
+                    border = BorderStroke(1.dp, DarkGraphiteBorder),
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
@@ -776,6 +1063,10 @@ private fun RecentEditItemCard(
     photo: PhotoEntity,
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val thumbReq = remember(photo.id, photo.filePath) {
+        PhotoImageProcessor.buildThumbnailRequest(context, photo.filePath, 220, 220)
+    }
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = DarkGraphiteCard),
@@ -793,7 +1084,7 @@ private fun RecentEditItemCard(
                     .aspectRatio(1f)
             ) {
                 AsyncImage(
-                    model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                    model = thumbReq,
                     contentDescription = photo.title,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -833,3 +1124,384 @@ private fun RecentEditItemCard(
         }
     }
 }
+
+/**
+ * Reusable Full-Library Photo Picker Bottom Sheet for the Studio tab.
+ * Supports both single-photo selection (Editor, RAW, EXIF Frame) and multi-photo selection
+ * (Collage, Batch Filters, Batch Resize/Convert, Compression) with search, album filter chips,
+ * and direct device storage / camera import buttons.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StudioPhotoPickerSheet(
+    photos: List<PhotoEntity>,
+    selectedIds: Set<Long>,
+    isMultiSelect: Boolean = false,
+    maxSelection: Int = 500,
+    title: String = "Select Photo",
+    onDismiss: () -> Unit,
+    onSelectSinglePhoto: (PhotoEntity) -> Unit = {},
+    onConfirmMultiSelect: (List<PhotoEntity>) -> Unit = {},
+    onPickFromDevice: (() -> Unit)? = null,
+    onCaptureCamera: (() -> Unit)? = null
+) {
+    val context = LocalContext.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedAlbumFilter by remember { mutableStateOf("All") }
+
+    val multiSelectedIds = remember(selectedIds) {
+        mutableStateListOf<Long>().apply { addAll(selectedIds) }
+    }
+
+    val albumFilters = remember(photos) {
+        val albums = photos.map { it.albumName }.filter { it.isNotBlank() }.distinct()
+        listOf("All", "Favorites") + albums
+    }
+
+    val filteredPhotos = remember(photos, searchQuery, selectedAlbumFilter) {
+        val q = searchQuery.trim().lowercase()
+        photos.filter { photo ->
+            val matchesAlbum = when (selectedAlbumFilter) {
+                "All" -> true
+                "Favorites" -> photo.isFavorite
+                else -> photo.albumName.equals(selectedAlbumFilter, ignoreCase = true)
+            }
+            val matchesQuery = q.isEmpty() ||
+                photo.title.lowercase().contains(q) ||
+                photo.fileName.lowercase().contains(q) ||
+                photo.albumName.lowercase().contains(q) ||
+                photo.dateHeader.lowercase().contains(q) ||
+                photo.tags.lowercase().contains(q)
+            matchesAlbum && matchesQuery
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = DarkGraphiteCard,
+        contentColor = TextWhite
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.88f)
+                .padding(horizontal = 16.dp)
+                .testTag("studio_photo_picker_sheet"),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Sheet Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                        color = TextWhite
+                    )
+                    Text(
+                        text = if (isMultiSelect) {
+                            "${multiSelectedIds.size} selected • ${filteredPhotos.size} available"
+                        } else {
+                            "Tap any photo to load in Studio (${filteredPhotos.size} photos)"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = NeonGreenAccent
+                    )
+                }
+
+                if (isMultiSelect) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = LocalCompleteUiTheme.current.surfaceVariant,
+                            border = BorderStroke(1.dp, DarkGraphiteBorder),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .clickable {
+                                    multiSelectedIds.clear()
+                                    multiSelectedIds.addAll(filteredPhotos.take(maxSelection).map { it.id })
+                                }
+                        ) {
+                            Text(
+                                text = "Select All",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = NeonGreenAccent,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = LocalCompleteUiTheme.current.surfaceVariant,
+                            border = BorderStroke(1.dp, DarkGraphiteBorder),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .clickable { multiSelectedIds.clear() }
+                        ) {
+                            Text(
+                                text = "Clear",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextMuted,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                } else {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = TextWhite)
+                    }
+                }
+            }
+
+            // Device Import & Camera Row (if callbacks provided)
+            if (onPickFromDevice != null || onCaptureCamera != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (onPickFromDevice != null) {
+                        OutlinedButton(
+                            onClick = onPickFromDevice,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, NeonGreenAccent.copy(alpha = 0.5f)),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AddPhotoAlternate,
+                                contentDescription = null,
+                                tint = NeonGreenAccent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Import from Device",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = TextWhite
+                            )
+                        }
+                    }
+                    if (onCaptureCamera != null) {
+                        OutlinedButton(
+                            onClick = onCaptureCamera,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, DarkGraphiteBorder)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoCamera,
+                                contentDescription = null,
+                                tint = NeonGreenAccent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Camera",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = TextWhite
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Search Input
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = {
+                    Text(
+                        text = "Search by name, album, date, or tag...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = NeonGreenAccent,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear search",
+                                tint = TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = NeonGreenAccent,
+                    unfocusedBorderColor = DarkGraphiteBorder,
+                    focusedTextColor = TextWhite,
+                    unfocusedTextColor = TextWhite
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // Album Filter Chips
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(albumFilters, key = { it }) { album ->
+                    val isSelected = selectedAlbumFilter == album
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = if (isSelected) NeonGreenAccent else LocalCompleteUiTheme.current.surfaceVariant,
+                        border = BorderStroke(1.dp, if (isSelected) NeonGreenAccent else DarkGraphiteBorder),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable { selectedAlbumFilter = album }
+                    ) {
+                        Text(
+                            text = album,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            ),
+                            color = if (isSelected) LocalCompleteUiTheme.current.onPrimaryAccent else TextWhite,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
+
+            // 3-Column Fast Thumbnail Grid
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                items(
+                    items = filteredPhotos,
+                    key = { it.id },
+                    contentType = { "studio_picker_thumb" }
+                ) { item ->
+                    val isSelected = if (isMultiSelect) {
+                        item.id in multiSelectedIds
+                    } else {
+                        item.id in selectedIds
+                    }
+                    val thumbReq = remember(item.id, item.filePath) {
+                        PhotoImageProcessor.buildThumbnailRequest(context, item.filePath, 260, 260)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(
+                                width = if (isSelected) 2.5.dp else 1.dp,
+                                color = if (isSelected) NeonGreenAccent else DarkGraphiteBorder,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable {
+                                if (isMultiSelect) {
+                                    if (item.id in multiSelectedIds) {
+                                        multiSelectedIds.remove(item.id)
+                                    } else if (multiSelectedIds.size < maxSelection) {
+                                        multiSelectedIds.add(item.id)
+                                    }
+                                } else {
+                                    onSelectSinglePhoto(item)
+                                }
+                            }
+                            .testTag("studio_picker_item_${item.id}")
+                    ) {
+                        AsyncImage(
+                            model = thumbReq,
+                            contentDescription = item.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        // Bottom title gradient
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))
+                                    )
+                                )
+                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = item.title,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(6.dp)
+                                    .size(22.dp)
+                                    .background(NeonGreenAccent, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Selected",
+                                    tint = LocalCompleteUiTheme.current.onPrimaryAccent,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Confirm Multi-Select Footer Button
+            if (isMultiSelect) {
+                Button(
+                    onClick = {
+                        val chosen = photos.filter { it.id in multiSelectedIds }
+                        onConfirmMultiSelect(chosen)
+                    },
+                    enabled = multiSelectedIds.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NeonGreenAccent,
+                        contentColor = LocalCompleteUiTheme.current.onPrimaryAccent
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                        .testTag("studio_picker_confirm_multi_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Use Selected Photos (${multiSelectedIds.size})",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+            }
+        }
+    }
+}
+

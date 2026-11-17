@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -107,9 +109,11 @@ fun StudioRawWorkspace(
     modifier: Modifier = Modifier
 ) {
     BackHandler { onClose() }
+    val context = LocalContext.current
 
     var selectedPhoto by remember { mutableStateOf(initialPhoto ?: allPhotos.firstOrNull()) }
     var activeDial by remember { mutableStateOf(RawParamDial.KELVIN) }
+    var showPhotoPickerSheet by remember { mutableStateOf(false) }
 
     var kelvinTemp by remember { mutableIntStateOf(5500) } // 2500K..9500K
     var tint by remember { mutableFloatStateOf(0f) } // -50..+50
@@ -205,6 +209,9 @@ fun StudioRawWorkspace(
             contentAlignment = Alignment.Center
         ) {
             if (selectedPhoto != null) {
+                val rawPreviewModel = remember(selectedPhoto!!.id, selectedPhoto!!.filePath) {
+                    PhotoImageProcessor.buildPreviewRequest(context, selectedPhoto!!.filePath, 1600)
+                }
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.Black),
@@ -213,7 +220,7 @@ fun StudioRawWorkspace(
                         .border(1.dp, BorderColor, RoundedCornerShape(16.dp))
                 ) {
                     AsyncImage(
-                        model = PhotoImageProcessor.resolveCoilModel(selectedPhoto!!.filePath),
+                        model = rawPreviewModel,
                         contentDescription = selectedPhoto!!.title,
                         contentScale = ContentScale.Fit,
                         colorFilter = ColorFilter.colorMatrix(liveMatrix),
@@ -396,13 +403,56 @@ fun StudioRawWorkspace(
                     )
                 }
 
-                // Photo Switcher Strip
+                // Photo Switcher Strip + Browse Grid Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = selectedPhoto?.title ?: "Select Photo",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = TextWhite,
+                        maxLines = 1
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = NeonGreen.copy(alpha = 0.16f),
+                        border = BorderStroke(1.dp, NeonGreen),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable { showPhotoPickerSheet = true }
+                            .testTag("raw_browse_photos_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoLibrary,
+                                contentDescription = null,
+                                tint = NeonGreen,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "Select Photo (${allPhotos.size})",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = NeonGreen
+                            )
+                        }
+                    }
+                }
+
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(allPhotos, key = { it.id }) { photo ->
+                    items(allPhotos.take(80), key = { it.id }) { photo ->
                         val isSelected = selectedPhoto?.id == photo.id
+                        val thumbReq = remember(photo.id, photo.filePath) {
+                            PhotoImageProcessor.buildThumbnailRequest(context, photo.filePath, 160, 160)
+                        }
                         Box(
                             modifier = Modifier
                                 .size(54.dp)
@@ -415,7 +465,7 @@ fun StudioRawWorkspace(
                                 .clickable { selectedPhoto = photo }
                         ) {
                             AsyncImage(
-                                model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                                model = thumbReq,
                                 contentDescription = photo.title,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
@@ -424,6 +474,20 @@ fun StudioRawWorkspace(
                     }
                 }
             }
+        }
+
+        if (showPhotoPickerSheet) {
+            StudioPhotoPickerSheet(
+                photos = allPhotos,
+                selectedIds = setOfNotNull(selectedPhoto?.id),
+                isMultiSelect = false,
+                title = "Select Photo for White Balance & RAW",
+                onDismiss = { showPhotoPickerSheet = false },
+                onSelectSinglePhoto = { chosen ->
+                    selectedPhoto = chosen
+                    showPhotoPickerSheet = false
+                }
+            )
         }
     }
 }

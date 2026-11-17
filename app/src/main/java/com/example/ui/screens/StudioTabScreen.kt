@@ -67,6 +67,7 @@ import com.example.ui.studio.StudioCollageWorkspace
 import com.example.ui.studio.StudioCompressionWorkspace
 import com.example.ui.studio.StudioEditorWorkspace
 import com.example.ui.studio.StudioHomeScreen
+import com.example.ui.studio.StudioPhotoPickerSheet
 import com.example.ui.studio.StudioRawWorkspace
 import com.example.ui.studio.StudioSubScreen
 import com.example.ui.theme.CompleteUiThemeSpec
@@ -218,8 +219,12 @@ fun StudioTabScreen(
                     StudioHomeScreen(
                         photos = photos,
                         activeTheme = activeTheme,
+                        selectedPhoto = activeTargetPhoto ?: photos.firstOrNull(),
+                        onSelectPhoto = { chosen ->
+                            activeTargetPhoto = chosen
+                        },
                         onLaunchEditor = { photo, initialTab ->
-                            activeTargetPhoto = photo ?: photos.firstOrNull()
+                            activeTargetPhoto = photo ?: activeTargetPhoto ?: photos.firstOrNull()
                             activeEditorTab = initialTab
                             if (activeTargetPhoto != null) {
                                 currentSubScreen = StudioSubScreen.PHOTO_EDITOR
@@ -235,7 +240,7 @@ fun StudioTabScreen(
                             }
                         },
                         onLaunchCompression = { photo ->
-                            activeTargetPhoto = photo ?: photos.firstOrNull()
+                            activeTargetPhoto = photo ?: activeTargetPhoto ?: photos.firstOrNull()
                             if (photos.isNotEmpty()) {
                                 currentSubScreen = StudioSubScreen.COMPRESSION_STUDIO
                             } else {
@@ -251,7 +256,7 @@ fun StudioTabScreen(
                             }
                         },
                         onLaunchRawEditor = { photo ->
-                            activeTargetPhoto = photo ?: photos.firstOrNull()
+                            activeTargetPhoto = photo ?: activeTargetPhoto ?: photos.firstOrNull()
                             if (photos.isNotEmpty()) {
                                 currentSubScreen = StudioSubScreen.RAW_EDITOR
                             } else {
@@ -263,7 +268,7 @@ fun StudioTabScreen(
                         onOpenCompare = onOpenCompare,
                         onOpenWatermark = onOpenWatermark,
                         onOpenExifFrameStudio = { target ->
-                            val resolved = target ?: photos.firstOrNull()
+                            val resolved = target ?: activeTargetPhoto ?: photos.firstOrNull()
                             if (resolved != null) {
                                 exifFrameTargetPhoto = resolved
                             } else {
@@ -285,6 +290,11 @@ fun StudioTabScreen(
                     if (target != null) {
                         StudioEditorWorkspace(
                             photo = target,
+                            allPhotos = photos,
+                            onSelectPhoto = { chosen ->
+                                activeTargetPhoto = chosen
+                            },
+                            onPickFromDevice = onPickCustomPhoto,
                             initialTab = activeEditorTab,
                             onClose = { currentSubScreen = StudioSubScreen.DASHBOARD },
                             onSaveEdits = { savedPhoto, cropRatio, customCropRect, rot, flipH, flipV, exp, bright, cont, sat, high, shad, temp, tint, vig, gr, fMat, fInt, smooth, saveCopy ->
@@ -538,6 +548,7 @@ fun StudioTabScreen(
         }
 
         val frameTarget = exifFrameTargetPhoto
+        var showExifFramePhotoPicker by remember { mutableStateOf(false) }
         if (frameTarget != null) {
             var selectedFrameStyle by remember(frameTarget.id) { mutableStateOf("Editorial Cream") }
             var stampExif by remember(frameTarget.id) { mutableStateOf(true) }
@@ -558,11 +569,23 @@ fun StudioTabScreen(
                 titleContentColor = activeTheme.textPrimary,
                 textContentColor = activeTheme.textPrimary,
                 title = {
-                    Text(
-                        text = "EXIF & Camera Frame",
-                        fontWeight = FontWeight.ExtraBold,
-                        color = activeTheme.textPrimary
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "EXIF & Camera Frame",
+                            fontWeight = FontWeight.ExtraBold,
+                            color = activeTheme.textPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(
+                            onClick = { showExifFramePhotoPicker = true }
+                        ) {
+                            Text("Select Photo", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
                 },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -635,6 +658,25 @@ fun StudioTabScreen(
                     TextButton(onClick = { exifFrameTargetPhoto = null }) {
                         Text("Cancel", color = activeTheme.textSecondary)
                     }
+                }
+            )
+        }
+
+        if (showExifFramePhotoPicker) {
+            StudioPhotoPickerSheet(
+                photos = photos,
+                selectedIds = setOfNotNull(frameTarget?.id),
+                isMultiSelect = false,
+                title = "Select Photo for EXIF Frame",
+                onDismiss = { showExifFramePhotoPicker = false },
+                onSelectSinglePhoto = { chosen ->
+                    exifFrameTargetPhoto = chosen
+                    activeTargetPhoto = chosen
+                    showExifFramePhotoPicker = false
+                },
+                onPickFromDevice = {
+                    showExifFramePhotoPicker = false
+                    onPickCustomPhoto()
                 }
             )
         }

@@ -153,6 +153,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.produceState
+import coil.Coil
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Precision
@@ -163,7 +165,9 @@ import com.example.data.PhotoEntity
 import com.example.data.PhotoFilterPreset
 import com.example.data.PhotoImageProcessor
 import com.example.ui.theme.LocalCompleteUiTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 import kotlin.math.abs
@@ -195,10 +199,138 @@ data class DetailedExifTelemetry(
     val softwarePipeline: String
 )
 
+private fun buildFastExifTelemetry(photo: PhotoEntity, exif: ExifInterface? = null): DetailedExifTelemetry {
+    val rawMake = exif?.getAttribute(ExifInterface.TAG_MAKE)?.trim().orEmpty()
+    val cameraMake = rawMake.ifEmpty {
+        photo.cameraModel.substringBefore(" ").ifEmpty { "Optical Studio" }
+    }
+
+    val fNumNumber = photo.aperture
+        .removePrefix("f/")
+        .removePrefix("F/")
+        .toFloatOrNull() ?: 1.8f
+    val apertureDesc = when {
+        fNumNumber <= 1.8f -> "Wide Open • Shallow DOF"
+        fNumNumber <= 2.8f -> "Fast Prime • Soft Bokeh"
+        fNumNumber <= 5.6f -> "Balanced Sharpness"
+        else -> "Deep Landscape Focus"
+    }
+
+    val shutterDesc = when {
+        photo.shutterSpeed.contains("1/4000") ||
+            photo.shutterSpeed.contains("1/2000") ||
+            photo.shutterSpeed.contains("1/1000") -> "High-Speed Action Freeze"
+        photo.shutterSpeed.contains("1/500") ||
+            photo.shutterSpeed.contains("1/320") ||
+            photo.shutterSpeed.contains("1/250") -> "Crisp Handheld Exposure"
+        photo.shutterSpeed.contains("1/125") ||
+            photo.shutterSpeed.contains("1/60") -> "Standard Daylight Shutter"
+        else -> "Low-Light / Long Exposure"
+    }
+
+    val isoValue = photo.iso.filter { it.isDigit() }.toIntOrNull() ?: 100
+    val isoDesc = when {
+        isoValue <= 100 -> "Base Native ISO • Max DR"
+        isoValue <= 400 -> "Clean Fine-Grain Sensor"
+        isoValue <= 800 -> "Balanced Low-Light Gain"
+        else -> "High-Sensitivity Night Gain"
+    }
+
+    val focalMm = photo.focalLength.filter { it.isDigit() }.toIntOrNull() ?: 26
+    val fovType = when {
+        focalMm <= 20 -> "Ultra-Wide Angle"
+        focalMm <= 30 -> "Wide Standard Prime"
+        focalMm <= 55 -> "Natural 50mm Perspective"
+        else -> "Portrait / Telephoto Optics"
+    }
+
+    val expBiasAttr = exif?.getAttribute(ExifInterface.TAG_EXPOSURE_BIAS_VALUE)?.trim().orEmpty()
+    val exposureBias = if (expBiasAttr.isNotEmpty() && expBiasAttr != "0" && expBiasAttr != "0/1") {
+        "${expBiasAttr} EV"
+    } else {
+        "0.0 EV (Balanced)"
+    }
+
+    val meteringInt = exif?.getAttributeInt(ExifInterface.TAG_METERING_MODE, -1) ?: -1
+    val meteringMode = when (meteringInt) {
+        2 -> "Center-Weighted"
+        3 -> "Spot Metering"
+        4 -> "Multi-Spot"
+        else -> "Matrix / Evaluative"
+    }
+
+    val wbInt = exif?.getAttributeInt(ExifInterface.TAG_WHITE_BALANCE, -1) ?: -1
+    val whiteBalance = when (wbInt) {
+        1 -> "Manual Kelvin WB"
+        else -> "Auto White Balance (AWB)"
+    }
+
+    val flashInt = exif?.getAttributeInt(ExifInterface.TAG_FLASH, 0) ?: 0
+    val flashStatus = if ((flashInt and 1) != 0) "Fired • Strobe Sync" else "Off • Natural Ambient"
+
+    val colorSpaceInt = exif?.getAttributeInt(ExifInterface.TAG_COLOR_SPACE, 1) ?: 1
+    val colorSpace = if (colorSpaceInt == 1) {
+        "sRGB IEC61966-2.1"
+    } else {
+        "Display P3 / Wide Gamut"
+    }
+
+    val orientInt = exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        ?: ExifInterface.ORIENTATION_NORMAL
+    val orientationLabel = when (orientInt) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> "Rotated 90° CW"
+        ExifInterface.ORIENTATION_ROTATE_180 -> "Rotated 180°"
+        ExifInterface.ORIENTATION_ROTATE_270 -> "Rotated 270° CW"
+        else -> if (photo.width >= photo.height) "Horizontal (Landscape)" else "Vertical (Portrait)"
+    }
+
+    fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
+    val w = photo.width.coerceAtLeast(1)
+    val h = photo.height.coerceAtLeast(1)
+    val divisor = gcd(w, h).coerceAtLeast(1)
+    val rw = w / divisor
+    val rh = h / divisor
+    val aspectRatioLabel = if (rw <= 20 && rh <= 20) {
+        "$rw:$rh"
+    } else {
+        String.format(Locale.US, "%.2f:1", w.toFloat() / h.toFloat())
+    }
+
+    val lensSpec = "${photo.focalLength} ${photo.aperture} • $fovType"
+    val softwarePipeline = if (photo.appliedFilter != "Original") {
+        "Darkroom Studio (${photo.appliedFilter})"
+    } else {
+        exif?.getAttribute(ExifInterface.TAG_SOFTWARE)?.takeIf { it.isNotBlank() }
+            ?: "Optical RAW-to-JPEG Engine"
+    }
+
+    return DetailedExifTelemetry(
+        cameraModel = photo.cameraModel,
+        cameraMake = cameraMake,
+        lensSpec = lensSpec,
+        aperture = photo.aperture,
+        apertureDescription = apertureDesc,
+        shutterSpeed = photo.shutterSpeed,
+        shutterDescription = shutterDesc,
+        iso = photo.iso,
+        isoDescription = isoDesc,
+        focalLength = photo.focalLength,
+        focalEquivalent35mm = "${focalMm}mm ($fovType)",
+        exposureBias = exposureBias,
+        meteringMode = meteringMode,
+        whiteBalance = whiteBalance,
+        flashStatus = flashStatus,
+        colorSpace = colorSpace,
+        orientationLabel = orientationLabel,
+        aspectRatioLabel = aspectRatioLabel,
+        softwarePipeline = softwarePipeline
+    )
+}
+
 @Composable
-fun rememberDetailedExifTelemetry(photo: PhotoEntity): DetailedExifTelemetry {
+fun rememberDetailedExifTelemetry(photo: PhotoEntity, readDiskExif: Boolean = false): DetailedExifTelemetry {
     val context = LocalContext.current
-    return remember(
+    val initialTelemetry = remember(
         photo.id,
         photo.filePath,
         photo.cameraModel,
@@ -210,134 +342,18 @@ fun rememberDetailedExifTelemetry(photo: PhotoEntity): DetailedExifTelemetry {
         photo.width,
         photo.height
     ) {
-        val exif = PhotoImageProcessor.readExifFromPathOrUri(context, photo.filePath)
-
-        val rawMake = exif?.getAttribute(ExifInterface.TAG_MAKE)?.trim().orEmpty()
-        val cameraMake = rawMake.ifEmpty {
-            photo.cameraModel.substringBefore(" ").ifEmpty { "Optical Studio" }
-        }
-
-        val fNumNumber = photo.aperture
-            .removePrefix("f/")
-            .removePrefix("F/")
-            .toFloatOrNull() ?: 1.8f
-        val apertureDesc = when {
-            fNumNumber <= 1.8f -> "Wide Open • Shallow DOF"
-            fNumNumber <= 2.8f -> "Fast Prime • Soft Bokeh"
-            fNumNumber <= 5.6f -> "Balanced Sharpness"
-            else -> "Deep Landscape Focus"
-        }
-
-        val shutterDesc = when {
-            photo.shutterSpeed.contains("1/4000") ||
-                photo.shutterSpeed.contains("1/2000") ||
-                photo.shutterSpeed.contains("1/1000") -> "High-Speed Action Freeze"
-            photo.shutterSpeed.contains("1/500") ||
-                photo.shutterSpeed.contains("1/320") ||
-                photo.shutterSpeed.contains("1/250") -> "Crisp Handheld Exposure"
-            photo.shutterSpeed.contains("1/125") ||
-                photo.shutterSpeed.contains("1/60") -> "Standard Daylight Shutter"
-            else -> "Low-Light / Long Exposure"
-        }
-
-        val isoValue = photo.iso.filter { it.isDigit() }.toIntOrNull() ?: 100
-        val isoDesc = when {
-            isoValue <= 100 -> "Base Native ISO • Max DR"
-            isoValue <= 400 -> "Clean Fine-Grain Sensor"
-            isoValue <= 800 -> "Balanced Low-Light Gain"
-            else -> "High-Sensitivity Night Gain"
-        }
-
-        val focalMm = photo.focalLength.filter { it.isDigit() }.toIntOrNull() ?: 26
-        val fovType = when {
-            focalMm <= 20 -> "Ultra-Wide Angle"
-            focalMm <= 30 -> "Wide Standard Prime"
-            focalMm <= 55 -> "Natural 50mm Perspective"
-            else -> "Portrait / Telephoto Optics"
-        }
-
-        val expBiasAttr = exif?.getAttribute(ExifInterface.TAG_EXPOSURE_BIAS_VALUE)?.trim().orEmpty()
-        val exposureBias = if (expBiasAttr.isNotEmpty() && expBiasAttr != "0" && expBiasAttr != "0/1") {
-            "${expBiasAttr} EV"
-        } else {
-            "0.0 EV (Balanced)"
-        }
-
-        val meteringInt = exif?.getAttributeInt(ExifInterface.TAG_METERING_MODE, -1) ?: -1
-        val meteringMode = when (meteringInt) {
-            2 -> "Center-Weighted"
-            3 -> "Spot Metering"
-            4 -> "Multi-Spot"
-            else -> "Matrix / Evaluative"
-        }
-
-        val wbInt = exif?.getAttributeInt(ExifInterface.TAG_WHITE_BALANCE, -1) ?: -1
-        val whiteBalance = when (wbInt) {
-            1 -> "Manual Kelvin WB"
-            else -> "Auto White Balance (AWB)"
-        }
-
-        val flashInt = exif?.getAttributeInt(ExifInterface.TAG_FLASH, 0) ?: 0
-        val flashStatus = if ((flashInt and 1) != 0) "Fired • Strobe Sync" else "Off • Natural Ambient"
-
-        val colorSpaceInt = exif?.getAttributeInt(ExifInterface.TAG_COLOR_SPACE, 1) ?: 1
-        val colorSpace = if (colorSpaceInt == 1) {
-            "sRGB IEC61966-2.1"
-        } else {
-            "Display P3 / Wide Gamut"
-        }
-
-        val orientInt = exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-            ?: ExifInterface.ORIENTATION_NORMAL
-        val orientationLabel = when (orientInt) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> "Rotated 90° CW"
-            ExifInterface.ORIENTATION_ROTATE_180 -> "Rotated 180°"
-            ExifInterface.ORIENTATION_ROTATE_270 -> "Rotated 270° CW"
-            else -> if (photo.width >= photo.height) "Horizontal (Landscape)" else "Vertical (Portrait)"
-        }
-
-        fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
-        val w = photo.width.coerceAtLeast(1)
-        val h = photo.height.coerceAtLeast(1)
-        val divisor = gcd(w, h).coerceAtLeast(1)
-        val rw = w / divisor
-        val rh = h / divisor
-        val aspectRatioLabel = if (rw <= 20 && rh <= 20) {
-            "$rw:$rh"
-        } else {
-            String.format(Locale.US, "%.2f:1", w.toFloat() / h.toFloat())
-        }
-
-        val lensSpec = "${photo.focalLength} ${photo.aperture} • $fovType"
-        val softwarePipeline = if (photo.appliedFilter != "Original") {
-            "Darkroom Studio (${photo.appliedFilter})"
-        } else {
-            exif?.getAttribute(ExifInterface.TAG_SOFTWARE)?.takeIf { it.isNotBlank() }
-                ?: "Optical RAW-to-JPEG Engine"
-        }
-
-        DetailedExifTelemetry(
-            cameraModel = photo.cameraModel,
-            cameraMake = cameraMake,
-            lensSpec = lensSpec,
-            aperture = photo.aperture,
-            apertureDescription = apertureDesc,
-            shutterSpeed = photo.shutterSpeed,
-            shutterDescription = shutterDesc,
-            iso = photo.iso,
-            isoDescription = isoDesc,
-            focalLength = photo.focalLength,
-            focalEquivalent35mm = "${focalMm}mm ($fovType)",
-            exposureBias = exposureBias,
-            meteringMode = meteringMode,
-            whiteBalance = whiteBalance,
-            flashStatus = flashStatus,
-            colorSpace = colorSpace,
-            orientationLabel = orientationLabel,
-            aspectRatioLabel = aspectRatioLabel,
-            softwarePipeline = softwarePipeline
-        )
+        buildFastExifTelemetry(photo, null)
     }
+
+    val telemetry by produceState(initialValue = initialTelemetry, photo.id, photo.filePath, readDiskExif) {
+        if (readDiskExif) {
+            value = withContext(Dispatchers.IO) {
+                val exif = PhotoImageProcessor.readExifFromPathOrUri(context, photo.filePath)
+                buildFastExifTelemetry(photo, exif)
+            }
+        }
+    }
+    return telemetry
 }
 
 private val StudioGold = Color(0xFFF5B400)
@@ -542,7 +558,7 @@ fun PhotoLightboxScreen(
     var previewLutPreset by remember(photo.id) { mutableStateOf(PhotoFilterPreset.ORIGINAL) }
     var previewFrameStyle by remember(photo.id) { mutableStateOf("Museum White Mat") }
 
-    val exifTelemetry = rememberDetailedExifTelemetry(photo)
+    val exifTelemetry = rememberDetailedExifTelemetry(photo, readDiskExif = showExifHudOverlay)
     val filmstripListState = rememberLazyListState()
 
     // Smoothly center the active photo in the bottom filmstrip carousel
@@ -598,6 +614,16 @@ fun PhotoLightboxScreen(
         )
     }
 
+    // Preload adjacent photos (previous & next) into memory cache so swiping left/right is 0ms instant
+    LaunchedEffect(currentIndex, currentList.size) {
+        val loader = Coil.imageLoader(context)
+        listOf(currentIndex - 1, currentIndex + 1).forEach { neighborIdx ->
+            currentList.getOrNull(neighborIdx)?.let { neighbor ->
+                loader.enqueue(PhotoImageProcessor.buildPreviewRequest(context, neighbor.filePath))
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -613,29 +639,11 @@ fun PhotoLightboxScreen(
         ) {
             Crossfade(
                 targetState = photo,
-                animationSpec = tween(durationMillis = 220),
+                animationSpec = tween(durationMillis = 120),
                 label = "lightbox_photo_crossfade"
             ) { targetPhoto ->
-                val coilModel = remember(targetPhoto.id, targetPhoto.filePath, targetPhoto.sizeBytes) {
-                    PhotoImageProcessor.resolveCoilModel(targetPhoto.filePath)
-                }
-                val highResRequest = remember(coilModel, targetPhoto.id, targetPhoto.width, targetPhoto.height) {
-                    val useOriginalBounds = targetPhoto.width in 1..4096 && targetPhoto.height in 1..4096
-                    ImageRequest.Builder(context)
-                        .data(coilModel)
-                        .apply {
-                            if (useOriginalBounds) {
-                                size(CoilSize.ORIGINAL)
-                                precision(Precision.EXACT)
-                            } else {
-                                // Decode up to 4K (4096px longest edge) to keep massive multi-megapixel files crisp & GPU-safe
-                                size(4096, 4096)
-                                scale(CoilScale.FIT)
-                                precision(Precision.INEXACT)
-                            }
-                        }
-                        .crossfade(false)
-                        .build()
+                val highResRequest = remember(targetPhoto.id, targetPhoto.filePath, targetPhoto.sizeBytes) {
+                    PhotoImageProcessor.buildPreviewRequest(context, targetPhoto.filePath)
                 }
 
                 Box(
@@ -1432,8 +1440,11 @@ fun PhotoLightboxScreen(
                                             }
                                             .testTag("filmstrip_thumb_$idx")
                                     ) {
+                                        val thumbRequest = remember(item.id, item.filePath) {
+                                            PhotoImageProcessor.buildThumbnailRequest(context, item.filePath, 160, 160)
+                                        }
                                         AsyncImage(
-                                            model = PhotoImageProcessor.resolveCoilModel(item.filePath),
+                                            model = thumbRequest,
                                             contentDescription = item.title,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize()
@@ -2670,7 +2681,7 @@ fun ExifMetadataBottomSheet(
     ) -> Unit
 ) {
     val activeTheme = LocalCompleteUiTheme.current
-    val telemetry = rememberDetailedExifTelemetry(photo)
+    val telemetry = rememberDetailedExifTelemetry(photo, readDiskExif = true)
 
     var isEditing by remember { mutableStateOf(false) }
     var titleText by remember(photo) { mutableStateOf(photo.title) }

@@ -65,6 +65,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -419,17 +420,20 @@ fun VaultScreen(
                 }
             } else {
                 items(vaultPhotos, key = { it.id }) { photo ->
+                    val vaultContext = LocalContext.current
+                    val vaultThumbModel = remember(photo.id, photo.filePath) {
+                        PhotoImageProcessor.buildThumbnailRequest(vaultContext, photo.filePath, 360, 360)
+                    }
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
-                            .animateItem()
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
                             .clickable { onPhotoClick(photo) }
                     ) {
                         Column {
                             AsyncImage(
-                                model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                                model = vaultThumbModel,
                                 contentDescription = photo.title,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
@@ -662,18 +666,21 @@ fun RecycleBinScreen(
             }
         } else {
             items(trashedPhotos, key = { it.id }) { photo ->
+                val trashContext = LocalContext.current
+                val trashThumbModel = remember(photo.id, photo.filePath) {
+                    PhotoImageProcessor.buildThumbnailRequest(trashContext, photo.filePath, 360, 360)
+                }
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
                     ),
                     modifier = Modifier
-                        .animateItem()
                         .fillMaxWidth()
                 ) {
                     Column {
                         AsyncImage(
-                            model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                            model = trashThumbModel,
                             contentDescription = photo.title,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier

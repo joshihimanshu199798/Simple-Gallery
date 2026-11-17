@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -447,6 +448,14 @@ fun CinematicFilterInterface(
 
         // 4. Modern Full-Bleed Filter Swatch Strip
         // When intensity slider is open: shrinks to compact 50x46 squircles and hides filter names!
+        val filterContext = LocalContext.current
+        val filterTileThumbModel = remember(previewImageSource) {
+            if (!previewImageSource.isNullOrEmpty()) {
+                PhotoImageProcessor.buildThumbnailRequest(filterContext, previewImageSource, 160, 160)
+            } else {
+                null
+            }
+        }
         LazyRow(
             state = listState,
             contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
@@ -477,9 +486,9 @@ fun CinematicFilterInterface(
                         .clickable { onSelectFilter(null) }
                         .testTag("filter_item_original")
                 ) {
-                    if (!previewImageSource.isNullOrEmpty()) {
+                    if (filterTileThumbModel != null) {
                         AsyncImage(
-                            model = PhotoImageProcessor.resolveCoilModel(previewImageSource),
+                            model = filterTileThumbModel,
                             contentDescription = "Original",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
@@ -583,9 +592,9 @@ fun CinematicFilterInterface(
                         .clickable { onSelectFilter(preset) }
                         .testTag("filter_item_${preset.id}")
                 ) {
-                    if (!previewImageSource.isNullOrEmpty()) {
+                    if (filterTileThumbModel != null) {
                         AsyncImage(
-                            model = PhotoImageProcessor.resolveCoilModel(previewImageSource),
+                            model = filterTileThumbModel,
                             contentDescription = preset.name,
                             contentScale = ContentScale.Crop,
                             colorFilter = ColorFilter.colorMatrix(ColorMatrix(preset.matrixArray)),

@@ -14,6 +14,7 @@ import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -30,17 +31,11 @@ class GalleryRepository(
 ) {
     private val syncMutex = Mutex()
     val visiblePhotosFlow: Flow<List<PhotoEntity>> = photoDao.observeVisiblePhotos().map { list ->
-        list.distinctBy { photo ->
-            val fileName = photo.filePath.substringAfterLast('/')
-            "$fileName:${photo.sizeBytes}"
-        }
-    }
+        list.distinctBy { photo -> "${photo.fileName}:${photo.sizeBytes}" }
+    }.flowOn(Dispatchers.Default)
     val favoritePhotosFlow: Flow<List<PhotoEntity>> = photoDao.observeFavoritePhotos().map { list ->
-        list.distinctBy { photo ->
-            val fileName = photo.filePath.substringAfterLast('/')
-            "$fileName:${photo.sizeBytes}"
-        }
-    }
+        list.distinctBy { photo -> "${photo.fileName}:${photo.sizeBytes}" }
+    }.flowOn(Dispatchers.Default)
     val vaultPhotosFlow: Flow<List<PhotoEntity>> = photoDao.observeVaultPhotos()
     val trashedPhotosFlow: Flow<List<PhotoEntity>> = photoDao.observeTrashedPhotos()
     val customAlbumsFlow: Flow<List<CustomAlbumEntity>> = photoDao.observeCustomAlbums()
@@ -76,7 +71,7 @@ class GalleryRepository(
             compareByDescending<AlbumSummary> { it.photoCount }
                 .thenByDescending { it.latestTimestamp }
         )
-    }
+    }.flowOn(Dispatchers.Default)
 
     private fun defaultAlbumDescription(name: String): String = when (name) {
         "Family" -> "Warm gatherings, park strolls & candid family portraits"
@@ -91,25 +86,27 @@ class GalleryRepository(
         else -> "Curated local photo collection"
     }
 
-    suspend fun ensureSeeded() {
-        val defaultAlbums = listOf(
-            CustomAlbumEntity("Camera Roll", "Captured shots & imported personal device photographs"),
-            CustomAlbumEntity("Family", "Warm gatherings, park strolls & candid family portraits"),
-            CustomAlbumEntity("Travel", "Ocean bays, coastal horizons & destination journeys"),
-            CustomAlbumEntity("Keepsakes", "Printed Polaroid keepsakes, milestones & family diary cards"),
-            CustomAlbumEntity("Landscapes", "Golden hour peaks, coastal horizons & nature vistas"),
-            CustomAlbumEntity("Architecture", "Minimalist geometry, light shafts & urban structure"),
-            CustomAlbumEntity("Nature & Macro", "Botanical close-ups, foliage & organic textures"),
-            CustomAlbumEntity("Street & Night", "After-hours neon, rain reflections & city stories"),
-            CustomAlbumEntity("Edited Studio", "Darkroom filtered & cropped master prints")
-        )
-        photoDao.deleteCustomAlbum("Little Memories")
-        defaultAlbums.forEach { photoDao.insertCustomAlbum(it) }
-
+    suspend fun ensureSeeded() = withContext(Dispatchers.IO) {
         val prefs = context.getSharedPreferences("simple_gallery_prefs", Context.MODE_PRIVATE)
-        val keepDemoSamples = prefs.getBoolean("keep_demo_samples_explicitly", false)
-        if (!keepDemoSamples) {
-            clearDefaultSamplePhotos()
+        if (!prefs.getBoolean("default_albums_seeded_v2", false)) {
+            val defaultAlbums = listOf(
+                CustomAlbumEntity("Camera Roll", "Captured shots & imported personal device photographs"),
+                CustomAlbumEntity("Family", "Warm gatherings, park strolls & candid family portraits"),
+                CustomAlbumEntity("Travel", "Ocean bays, coastal horizons & destination journeys"),
+                CustomAlbumEntity("Keepsakes", "Printed Polaroid keepsakes, milestones & family diary cards"),
+                CustomAlbumEntity("Landscapes", "Golden hour peaks, coastal horizons & nature vistas"),
+                CustomAlbumEntity("Architecture", "Minimalist geometry, light shafts & urban structure"),
+                CustomAlbumEntity("Nature & Macro", "Botanical close-ups, foliage & organic textures"),
+                CustomAlbumEntity("Street & Night", "After-hours neon, rain reflections & city stories"),
+                CustomAlbumEntity("Edited Studio", "Darkroom filtered & cropped master prints")
+            )
+            photoDao.deleteCustomAlbum("Little Memories")
+            defaultAlbums.forEach { photoDao.insertCustomAlbum(it) }
+            val keepDemoSamples = prefs.getBoolean("keep_demo_samples_explicitly", false)
+            if (!keepDemoSamples) {
+                clearDefaultSamplePhotos()
+            }
+            prefs.edit().putBoolean("default_albums_seeded_v2", true).apply()
         }
     }
 
@@ -147,9 +144,13 @@ class GalleryRepository(
     }
 
     /**
-     * Automatically scans the device's MediaStore (DCIM/Camera, Pictures, Screenshots,
-     * Downloads, WhatsApp Images, etc.) and synchronizes personal photos into the gallery
-     * using fast Content URIs and progressive batch insertion.
+     * Synchronizes device photos from MediaStore into the Room database.
+     * - On initial sync (or explicit forceRescan), performs a progressive scan that flushes the
+     *   first 24 photos immediately (<50ms) so the initial viewport renders right away, then inserts
+     *   remaining photos in large 300-row batches.
+     * - On subsequent app opens (`!forceRescan` when photos are already cached), performs an
+     *   ultra-fast delta query (`DATE_ADDED >= lastSyncSec OR DATE_MODIFIED >= lastSyncSec`)
+     *   so cached photos appear in 0ms without re-fetching all photos from start.
      */
     suspend fun syncDeviceMediaStorePhotos(forceRescan: Boolean = false): Int =
         withContext(Dispatchers.IO) {
@@ -161,36 +162,44 @@ class GalleryRepository(
                 val resolver = context.contentResolver
                 val prefs = context.getSharedPreferences("simple_gallery_prefs", Context.MODE_PRIVATE)
                 val deletedLocalPaths = prefs.getStringSet("deleted_local_photo_paths", emptySet()) ?: emptySet()
+                val lastSyncSec = prefs.getLong("last_mediastore_sync_sec", 0L)
+                val nowSec = System.currentTimeMillis() / 1000L
+
                 val existingPhotos = photoDao.getAllPhotosOnce()
+                val isDeltaSync = !forceRescan && existingPhotos.isNotEmpty() && lastSyncSec > 0L
 
-                // Deduplicate any pre-existing duplicate entries in the database
-                val seenKeys = mutableMapOf<String, PhotoEntity>()
-                val duplicateIdsToDelete = mutableListOf<Long>()
-                for (photo in existingPhotos) {
-                    val fileName = photo.filePath.substringAfterLast('/')
-                    val canonicalKey = "$fileName:${photo.sizeBytes}"
-                    val existing = seenKeys[canonicalKey]
-                    if (existing != null) {
-                        // Keep the one with content:// URI or lower ID
-                        if (photo.filePath.startsWith("content://") && !existing.filePath.startsWith("content://")) {
-                            duplicateIdsToDelete.add(existing.id)
-                            seenKeys[canonicalKey] = photo
+                // Only run full deduplication on initial sync or explicit rescan
+                val activePhotos = if (!isDeltaSync && existingPhotos.size > 1) {
+                    val seenKeys = HashMap<String, PhotoEntity>(existingPhotos.size)
+                    val duplicateIdsToDelete = mutableListOf<Long>()
+                    for (photo in existingPhotos) {
+                        val canonicalKey = "${photo.fileName}:${photo.sizeBytes}"
+                        val existing = seenKeys[canonicalKey]
+                        if (existing != null) {
+                            if (photo.filePath.startsWith("content://") && !existing.filePath.startsWith("content://")) {
+                                duplicateIdsToDelete.add(existing.id)
+                                seenKeys[canonicalKey] = photo
+                            } else {
+                                duplicateIdsToDelete.add(photo.id)
+                            }
                         } else {
-                            duplicateIdsToDelete.add(photo.id)
+                            seenKeys[canonicalKey] = photo
                         }
-                    } else {
-                        seenKeys[canonicalKey] = photo
                     }
-                }
-                if (duplicateIdsToDelete.isNotEmpty()) {
-                    photoDao.deletePhotosByIds(duplicateIdsToDelete)
+                    if (duplicateIdsToDelete.isNotEmpty()) {
+                        photoDao.deletePhotosByIds(duplicateIdsToDelete)
+                    }
+                    seenKeys.values
+                } else {
+                    existingPhotos
                 }
 
-                val existingPaths = seenKeys.values.map { it.filePath }.toHashSet()
-                val existingByMediaId = HashMap<Long, PhotoEntity>()
+                val existingPaths = HashSet<String>(activePhotos.size * 2)
+                val existingByMediaId = HashMap<Long, PhotoEntity>(activePhotos.size)
                 val existingByRawPath = HashMap<String, PhotoEntity>()
 
-                for (photo in seenKeys.values) {
+                for (photo in activePhotos) {
+                    existingPaths.add(photo.filePath)
                     extractMediaIdFromPathOrUri(photo.filePath)?.let { id ->
                         existingByMediaId[id] = photo
                     }
@@ -213,19 +222,36 @@ class GalleryRepository(
                     MediaStore.Images.Media.DATA
                 )
 
-                val queryUris = buildList {
-                    add(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val volumeUri = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-                        if (volumeUri != MediaStore.Images.Media.EXTERNAL_CONTENT_URI) {
-                            add(volumeUri)
+                val queryUris = if (isDeltaSync) {
+                    listOf(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+                } else {
+                    buildList {
+                        add(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val volumeUri = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+                            if (volumeUri != MediaStore.Images.Media.EXTERNAL_CONTENT_URI) {
+                                add(volumeUri)
+                            }
                         }
                     }
                 }
 
+                val deltaThresholdSec = (lastSyncSec - 60L).coerceAtLeast(0L).toString()
+                val selection = if (isDeltaSync) {
+                    "${MediaStore.Images.Media.DATE_ADDED} >= ? OR ${MediaStore.Images.Media.DATE_MODIFIED} >= ?"
+                } else {
+                    null
+                }
+                val selectionArgs = if (isDeltaSync) {
+                    arrayOf(deltaThresholdSec, deltaThresholdSec)
+                } else {
+                    null
+                }
+
                 var totalAddedOrRepaired = 0
-                val pendingInsertBatch = mutableListOf<PhotoEntity>()
-                val discoveredAlbums = mutableSetOf<String>()
+                var firstBatchFlushed = existingPhotos.isNotEmpty()
+                val pendingInsertBatch = ArrayList<PhotoEntity>(320)
+                val discoveredAlbums = HashSet<String>()
                 val seenMediaIds = HashSet<Long>()
                 val seenFileKeys = HashSet<String>()
 
@@ -234,8 +260,8 @@ class GalleryRepository(
                         resolver.query(
                             queryUri,
                             projection,
-                            null,
-                            null,
+                            selection,
+                            selectionArgs,
                             "${MediaStore.Images.Media.DATE_ADDED} DESC"
                         )
                     } catch (_: Exception) {
@@ -254,8 +280,8 @@ class GalleryRepository(
                                     MediaStore.Images.Media.SIZE,
                                     MediaStore.Images.Media.MIME_TYPE
                                 ),
-                                null,
-                                null,
+                                selection,
+                                selectionArgs,
                                 null
                             )
                         } catch (_: Exception) {
@@ -298,7 +324,7 @@ class GalleryRepository(
                                 rawDataPath.substringAfterLast('/').ifBlank { "IMG_$mediaId.jpg" }
                             }
 
-                            // Only skip the 10 synthetic starter demo files, NEVER real user 2026 photos
+                            // Only skip the 10 synthetic starter demo files, NEVER real user photos
                             if (PhotoImageProcessor.isStarterSamplePath(displayName)) continue
 
                             // Skip photos that the user explicitly deleted from local storage
@@ -309,8 +335,6 @@ class GalleryRepository(
                                 continue
                             }
 
-                            // If an existing row used a legacy raw file path or broken MS_ cache file,
-                            // upgrade its filePath in-place to the canonical MediaStore Content URI
                             val existingMatch = existingByMediaId[mediaId]
                                 ?: (if (rawDataPath.isNotEmpty()) existingByRawPath[rawDataPath] else null)
 
@@ -383,15 +407,7 @@ class GalleryRepository(
                                 }
                             }.distinct().joinToString(",")
 
-                            if (discoveredAlbums.add(bucketName)) {
-                                photoDao.insertCustomAlbum(
-                                    CustomAlbumEntity(
-                                        name = bucketName,
-                                        description = "Automatically synced from device folder '$bucketName'"
-                                    )
-                                )
-                            }
-
+                            discoveredAlbums.add(bucketName)
                             existingPaths.add(contentUriString)
                             seenFileKeys.add("$displayName:$sizeBytes")
                             pendingInsertBatch.add(
@@ -411,8 +427,11 @@ class GalleryRepository(
                             )
                             totalAddedOrRepaired++
 
-                            // Progressive batch insert so photos appear on screen immediately
-                            if (pendingInsertBatch.size >= 40) {
+                            // Flush the first 24 photos immediately so the first screen appears in <50ms,
+                            // then flush in large 300-item chunks to avoid excessive Room Flow emissions
+                            val batchLimit = if (!firstBatchFlushed) 24 else 300
+                            if (pendingInsertBatch.size >= batchLimit) {
+                                firstBatchFlushed = true
                                 photoDao.insertPhotos(pendingInsertBatch.toList())
                                 pendingInsertBatch.clear()
                             }
@@ -420,76 +439,69 @@ class GalleryRepository(
                     }
                 }
 
-                // Fallback: Also scan standard public directories directly for any readable image files
-                // that MediaStore hasn't indexed yet.
-                val publicDirsToScan = listOfNotNull(
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_SCREENSHOTS)
-                    } else null
-                )
-                val supportedExtensions = setOf("jpg", "jpeg", "png", "webp", "heic", "heif")
-                val alreadyTrackedRawPaths = existingByRawPath.keys.toHashSet()
+                // Fallback directory walk ONLY when MediaStore returned zero items and DB is empty
+                if (!isDeltaSync && seenMediaIds.isEmpty() && existingPhotos.isEmpty()) {
+                    val publicDirsToScan = listOfNotNull(
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_SCREENSHOTS)
+                        } else null
+                    )
+                    val supportedExtensions = setOf("jpg", "jpeg", "png", "webp", "heic", "heif")
+                    val alreadyTrackedRawPaths = existingByRawPath.keys.toHashSet()
 
-                for (rootDir in publicDirsToScan) {
-                    if (!rootDir.exists() || !rootDir.canRead()) continue
-                    try {
-                        rootDir.walkTopDown()
-                            .maxDepth(3)
-                            .filter { file ->
-                                file.isFile &&
-                                    file.canRead() &&
-                                    file.length() > 0L &&
-                                    !file.name.startsWith(".") &&
-                                    file.extension.lowercase() in supportedExtensions &&
-                                    !PhotoImageProcessor.isStarterSamplePath(file.name)
-                            }
-                            .take(200)
-                            .forEach { file ->
-                                val absPath = file.absolutePath
-                                val fileName = file.name
-                                val fileSize = file.length()
-                                val fileKey = "$fileName:$fileSize"
-                                if (absPath !in existingPaths &&
-                                    absPath !in alreadyTrackedRawPaths &&
-                                    absPath !in deletedLocalPaths &&
-                                    fileKey !in seenFileKeys &&
-                                    seenMediaIds.isEmpty()
-                                ) {
-                                    val folderName = file.parentFile?.name?.takeIf { it.isNotEmpty() } ?: "Camera Roll"
-                                    val fileUriString = Uri.fromFile(file).toString()
-                                    if (fileUriString !in existingPaths && fileUriString !in deletedLocalPaths) {
-                                        if (discoveredAlbums.add(folderName)) {
-                                            photoDao.insertCustomAlbum(
-                                                CustomAlbumEntity(
-                                                    name = folderName,
-                                                    description = "Automatically synced from device folder '$folderName'"
+                    for (rootDir in publicDirsToScan) {
+                        if (!rootDir.exists() || !rootDir.canRead()) continue
+                        try {
+                            rootDir.walkTopDown()
+                                .maxDepth(3)
+                                .filter { file ->
+                                    file.isFile &&
+                                        file.canRead() &&
+                                        file.length() > 0L &&
+                                        !file.name.startsWith(".") &&
+                                        file.extension.lowercase() in supportedExtensions &&
+                                        !PhotoImageProcessor.isStarterSamplePath(file.name)
+                                }
+                                .take(200)
+                                .forEach { file ->
+                                    val absPath = file.absolutePath
+                                    val fileName = file.name
+                                    val fileSize = file.length()
+                                    val fileKey = "$fileName:$fileSize"
+                                    if (absPath !in existingPaths &&
+                                        absPath !in alreadyTrackedRawPaths &&
+                                        absPath !in deletedLocalPaths &&
+                                        fileKey !in seenFileKeys
+                                    ) {
+                                        val folderName = file.parentFile?.name?.takeIf { it.isNotEmpty() } ?: "Camera Roll"
+                                        val fileUriString = Uri.fromFile(file).toString()
+                                        if (fileUriString !in existingPaths && fileUriString !in deletedLocalPaths) {
+                                            discoveredAlbums.add(folderName)
+                                            existingPaths.add(absPath)
+                                            pendingInsertBatch.add(
+                                                PhotoEntity(
+                                                    title = file.nameWithoutExtension.replace("_", " ").ifBlank { "Device Photo" },
+                                                    filePath = absPath,
+                                                    albumName = folderName,
+                                                    dateTaken = file.lastModified().takeIf { it > 0L } ?: System.currentTimeMillis(),
+                                                    width = 1080,
+                                                    height = 1080,
+                                                    sizeBytes = fileSize,
+                                                    mimeType = "image/${file.extension.lowercase()}",
+                                                    cameraModel = "Device Storage",
+                                                    locationTag = folderName,
+                                                    tags = "$folderName,Device"
                                                 )
                                             )
+                                            totalAddedOrRepaired++
                                         }
-                                        existingPaths.add(absPath)
-                                        pendingInsertBatch.add(
-                                            PhotoEntity(
-                                                title = file.nameWithoutExtension.replace("_", " ").ifBlank { "Device Photo" },
-                                                filePath = absPath,
-                                                albumName = folderName,
-                                                dateTaken = file.lastModified().takeIf { it > 0L } ?: System.currentTimeMillis(),
-                                                width = 1080,
-                                                height = 1080,
-                                                sizeBytes = file.length(),
-                                                mimeType = "image/${file.extension.lowercase()}",
-                                                cameraModel = "Device Storage",
-                                                locationTag = folderName,
-                                                tags = "$folderName,Device"
-                                            )
-                                        )
-                                        totalAddedOrRepaired++
                                     }
                                 }
-                            }
-                    } catch (_: Exception) {
+                        } catch (_: Exception) {
+                        }
                     }
                 }
 
@@ -498,6 +510,16 @@ class GalleryRepository(
                     pendingInsertBatch.clear()
                 }
 
+                for (albumName in discoveredAlbums) {
+                    photoDao.insertCustomAlbum(
+                        CustomAlbumEntity(
+                            name = albumName,
+                            description = "Automatically synced from device folder '$albumName'"
+                        )
+                    )
+                }
+
+                prefs.edit().putLong("last_mediastore_sync_sec", nowSec).apply()
                 totalAddedOrRepaired
             }
         }

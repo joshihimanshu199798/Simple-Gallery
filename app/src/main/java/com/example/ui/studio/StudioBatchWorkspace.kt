@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Filter
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RotateRight
@@ -87,6 +88,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -493,8 +495,12 @@ fun StudioBatchWorkspace(
                                                 }
                                             }
                                     ) {
+                                        val batchPreviewContext = LocalContext.current
+                                        val batchPreviewModel = remember(photo.id, photo.filePath) {
+                                            PhotoImageProcessor.buildPreviewRequest(batchPreviewContext, photo.filePath, 1280)
+                                        }
                                         AsyncImage(
-                                            model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                                            model = batchPreviewModel,
                                             contentDescription = "Batch Live Preview",
                                             contentScale = ContentScale.Crop,
                                             colorFilter = liveColorMatrix?.let { ColorFilter.colorMatrix(it) },
@@ -945,6 +951,10 @@ private fun DedicatedBatchResizeContent(
                 }
 
                 activePreviewPhoto?.let { photo ->
+                    val resizePreviewContext = LocalContext.current
+                    val resizePreviewModel = remember(photo.id, photo.filePath) {
+                        PhotoImageProcessor.buildPreviewRequest(resizePreviewContext, photo.filePath, 1024)
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -954,7 +964,7 @@ private fun DedicatedBatchResizeContent(
                         contentAlignment = Alignment.Center
                     ) {
                         AsyncImage(
-                            model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                            model = resizePreviewModel,
                             contentDescription = photo.title,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
@@ -1232,6 +1242,10 @@ private fun DedicatedBatchFormatConverterContent(
                 }
 
                 activePreviewPhoto?.let { photo ->
+                    val formatPreviewContext = LocalContext.current
+                    val formatPreviewModel = remember(photo.id, photo.filePath) {
+                        PhotoImageProcessor.buildPreviewRequest(formatPreviewContext, photo.filePath, 1024)
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1241,7 +1255,7 @@ private fun DedicatedBatchFormatConverterContent(
                         contentAlignment = Alignment.Center
                     ) {
                         AsyncImage(
-                            model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                            model = formatPreviewModel,
                             contentDescription = photo.title,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
@@ -1532,6 +1546,9 @@ private fun BatchPhotoSelectionSection(
     onClearAll: () -> Unit,
     onSetActivePreview: (Long) -> Unit
 ) {
+    val context = LocalContext.current
+    var showPhotoPickerSheet by remember { mutableStateOf(false) }
+
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = PanelBg,
@@ -1549,20 +1566,48 @@ private fun BatchPhotoSelectionSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Target Photos (${selectedIds.size}/${allPhotos.size})",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = TextWhite
                     )
                     Text(
-                        text = "Tap to toggle selection • Long-tap or tap eye to preview",
+                        text = "Tap to toggle selection or browse grid",
                         style = MaterialTheme.typography.labelSmall,
                         color = TextMuted
                     )
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = NeonGreen.copy(alpha = 0.16f),
+                        border = BorderStroke(1.dp, NeonGreen),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable { showPhotoPickerSheet = true }
+                            .testTag("batch_browse_grid_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoLibrary,
+                                contentDescription = null,
+                                tint = NeonGreen,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "Grid",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = NeonGreen
+                            )
+                        }
+                    }
+
                     Surface(
                         shape = RoundedCornerShape(50),
                         color = CardBg,
@@ -1601,9 +1646,12 @@ private fun BatchPhotoSelectionSection(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(vertical = 2.dp)
             ) {
-                items(allPhotos, key = { it.id }) { photo ->
+                items(allPhotos.take(80), key = { it.id }) { photo ->
                     val isSelected = selectedIds.contains(photo.id)
                     val isPreview = activePreviewPhotoId == photo.id
+                    val thumbReq = remember(photo.id, photo.filePath) {
+                        PhotoImageProcessor.buildThumbnailRequest(context, photo.filePath, 180, 180)
+                    }
 
                     Box(
                         modifier = Modifier
@@ -1624,7 +1672,7 @@ private fun BatchPhotoSelectionSection(
                             }
                     ) {
                         AsyncImage(
-                            model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                            model = thumbReq,
                             contentDescription = photo.title,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
@@ -1656,5 +1704,21 @@ private fun BatchPhotoSelectionSection(
                 }
             }
         }
+    }
+
+    if (showPhotoPickerSheet) {
+        StudioPhotoPickerSheet(
+            photos = allPhotos,
+            selectedIds = selectedIds.toSet(),
+            isMultiSelect = true,
+            title = "Select Target Photos for Batch Action",
+            onDismiss = { showPhotoPickerSheet = false },
+            onConfirmMultiSelect = { chosen ->
+                onClearAll()
+                chosen.forEach { onToggleSelect(it.id) }
+                chosen.firstOrNull()?.let { onSetActivePreview(it.id) }
+                showPhotoPickerSheet = false
+            }
+        )
     }
 }

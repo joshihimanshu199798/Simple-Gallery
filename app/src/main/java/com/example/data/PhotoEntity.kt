@@ -36,62 +36,74 @@ data class PhotoEntity(
     val isVideo: Boolean = false,
     val durationMs: Long = 0L
 ) {
-    val formattedSize: String
-        get() = formatBytes(sizeBytes)
+    @delegate:androidx.room.Ignore
+    val formattedSize: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        formatBytes(sizeBytes)
+    }
 
-    val megapixels: String
-        get() {
-            val mp = (width.toLong() * height.toLong()) / 1_000_000.0
-            return if (mp >= 0.1) String.format(Locale.US, "%.1f MP", mp) else "${width}×${height}"
-        }
+    @delegate:androidx.room.Ignore
+    val megapixels: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        val mp = (width.toLong() * height.toLong()) / 1_000_000.0
+        if (mp >= 0.1) String.format(Locale.US, "%.1f MP", mp) else "${width}×${height}"
+    }
 
-    val resolutionText: String
-        get() = "$width × $height"
+    @delegate:androidx.room.Ignore
+    val resolutionText: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        "$width × $height"
+    }
 
-    val exifSummary: String
-        get() = "$aperture • $shutterSpeed • $iso • $focalLength"
+    @delegate:androidx.room.Ignore
+    val exifSummary: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        "$aperture • $shutterSpeed • $iso • $focalLength"
+    }
 
-    val tagList: List<String>
-        get() = tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    @delegate:androidx.room.Ignore
+    val tagList: List<String> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        if (tags.isBlank()) emptyList()
+        else tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    }
 
-    val dateHeader: String
-        get() {
-            val formatter = SimpleDateFormat("EEE, MMM d, yyyy", Locale.US)
-            return formatter.format(Date(dateTaken))
-        }
+    @delegate:androidx.room.Ignore
+    val dateHeader: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        DATE_HEADER_FORMAT.get()!!.format(Date(dateTaken))
+    }
 
-    val shortDateText: String
-        get() {
-            val formatter = SimpleDateFormat("MMM d", Locale.US)
-            return formatter.format(Date(dateTaken))
-        }
+    @delegate:androidx.room.Ignore
+    val shortDateText: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        SHORT_DATE_FORMAT.get()!!.format(Date(dateTaken))
+    }
 
-    val fullTimestampText: String
-        get() {
-            val formatter = SimpleDateFormat("MMM d, yyyy • h:mm a", Locale.US)
-            return formatter.format(Date(dateTaken))
-        }
+    @delegate:androidx.room.Ignore
+    val fullTimestampText: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        FULL_TIMESTAMP_FORMAT.get()!!.format(Date(dateTaken))
+    }
 
-    val fileName: String
-        get() = filePath.substringAfterLast('/')
+    @delegate:androidx.room.Ignore
+    val fileName: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        filePath.substringAfterLast('/')
+    }
 
-    val isoDateText: String
-        get() {
-            val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-            return formatter.format(Date(dateTaken))
-        }
+    @delegate:androidx.room.Ignore
+    val isoDateText: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        ISO_DATE_FORMAT.get()!!.format(Date(dateTaken))
+    }
 
-    val formattedDuration: String
-        get() {
-            val totalSec = (durationMs / 1000L).coerceAtLeast(1L)
-            val mins = totalSec / 60L
-            val secs = totalSec % 60L
-            return String.format(Locale.US, "%d:%02d", mins, secs)
-        }
+    @delegate:androidx.room.Ignore
+    val monthYearText: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        MONTH_YEAR_FORMAT.get()!!.format(Date(dateTaken))
+    }
+
+    @delegate:androidx.room.Ignore
+    val formattedDuration: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        val totalSec = (durationMs / 1000L).coerceAtLeast(1L)
+        val mins = totalSec / 60L
+        val secs = totalSec % 60L
+        String.format(Locale.US, "%d:%02d", mins, secs)
+    }
 
     fun relativeDateGroup(nowMs: Long = System.currentTimeMillis()): String {
-        val calNow = java.util.Calendar.getInstance().apply { timeInMillis = nowMs }
-        val calPhoto = java.util.Calendar.getInstance().apply { timeInMillis = dateTaken }
+        val calNow = NOW_CALENDAR.get()!!.apply { timeInMillis = nowMs }
+        val calPhoto = PHOTO_CALENDAR.get()!!.apply { timeInMillis = dateTaken }
 
         val sameYear = calNow.get(java.util.Calendar.YEAR) == calPhoto.get(java.util.Calendar.YEAR)
         val dayDiff = if (sameYear) {
@@ -105,7 +117,31 @@ data class PhotoEntity(
             dayDiff == 1 && sameYear -> "Yesterday"
             dayDiff in 2..6 -> "This Week"
             sameYear && calNow.get(java.util.Calendar.MONTH) == calPhoto.get(java.util.Calendar.MONTH) -> "Earlier This Month"
-            else -> SimpleDateFormat("MMMM yyyy", Locale.US).format(Date(dateTaken))
+            else -> monthYearText
+        }
+    }
+
+    companion object {
+        private val DATE_HEADER_FORMAT = object : ThreadLocal<SimpleDateFormat>() {
+            override fun initialValue() = SimpleDateFormat("EEE, MMM d, yyyy", Locale.US)
+        }
+        private val SHORT_DATE_FORMAT = object : ThreadLocal<SimpleDateFormat>() {
+            override fun initialValue() = SimpleDateFormat("MMM d", Locale.US)
+        }
+        private val FULL_TIMESTAMP_FORMAT = object : ThreadLocal<SimpleDateFormat>() {
+            override fun initialValue() = SimpleDateFormat("MMM d, yyyy • h:mm a", Locale.US)
+        }
+        private val ISO_DATE_FORMAT = object : ThreadLocal<SimpleDateFormat>() {
+            override fun initialValue() = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        }
+        private val MONTH_YEAR_FORMAT = object : ThreadLocal<SimpleDateFormat>() {
+            override fun initialValue() = SimpleDateFormat("MMMM yyyy", Locale.US)
+        }
+        private val NOW_CALENDAR = object : ThreadLocal<java.util.Calendar>() {
+            override fun initialValue(): java.util.Calendar = java.util.Calendar.getInstance()
+        }
+        private val PHOTO_CALENDAR = object : ThreadLocal<java.util.Calendar>() {
+            override fun initialValue(): java.util.Calendar = java.util.Calendar.getInstance()
         }
     }
 

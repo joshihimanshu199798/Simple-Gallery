@@ -53,6 +53,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -95,11 +97,13 @@ fun StudioCompressionWorkspace(
     modifier: Modifier = Modifier
 ) {
     BackHandler { onClose() }
+    val context = LocalContext.current
 
     var selectedPhoto by remember { mutableStateOf(initialPhoto ?: allPhotos.firstOrNull()) }
     var format by remember { mutableStateOf("WEBP") } // JPEG, WEBP, PNG
     var quality by remember { mutableIntStateOf(80) }
     var scalePercent by remember { mutableIntStateOf(80) }
+    var showPhotoPickerSheet by remember { mutableStateOf(false) }
 
     val batchSelectedIds = remember {
         mutableStateListOf<Long>().apply {
@@ -194,6 +198,9 @@ fun StudioCompressionWorkspace(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     if (selectedPhoto != null) {
+                        val compressPreviewModel = remember(selectedPhoto!!.id, selectedPhoto!!.filePath) {
+                            PhotoImageProcessor.buildPreviewRequest(context, selectedPhoto!!.filePath, 1280)
+                        }
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -203,7 +210,7 @@ fun StudioCompressionWorkspace(
                             contentAlignment = Alignment.Center
                         ) {
                             AsyncImage(
-                                model = PhotoImageProcessor.resolveCoilModel(selectedPhoto!!.filePath),
+                                model = compressPreviewModel,
                                 contentDescription = selectedPhoto!!.title,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize()
@@ -390,6 +397,34 @@ fun StudioCompressionWorkspace(
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Surface(
                                 shape = RoundedCornerShape(50),
+                                color = NeonGreen.copy(alpha = 0.16f),
+                                border = BorderStroke(1.dp, NeonGreen),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable { showPhotoPickerSheet = true }
+                                    .testTag("compression_browse_photos_button")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PhotoLibrary,
+                                        contentDescription = null,
+                                        tint = NeonGreen,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = "Browse Grid",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = NeonGreen
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(50),
                                 color = CardBg,
                                 border = BorderStroke(1.dp, BorderColor),
                                 modifier = Modifier
@@ -413,8 +448,11 @@ fun StudioCompressionWorkspace(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(allPhotos, key = { it.id }) { photo ->
+                        items(allPhotos.take(80), key = { it.id }) { photo ->
                             val isSelected = photo.id in batchSelectedIds || (batchSelectedIds.isEmpty() && selectedPhoto?.id == photo.id)
+                            val thumbReq = remember(photo.id, photo.filePath) {
+                                PhotoImageProcessor.buildThumbnailRequest(context, photo.filePath, 180, 180)
+                            }
                             Box(
                                 modifier = Modifier
                                     .size(72.dp)
@@ -434,7 +472,7 @@ fun StudioCompressionWorkspace(
                                     }
                             ) {
                                 AsyncImage(
-                                    model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                                    model = thumbReq,
                                     contentDescription = photo.title,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
@@ -462,6 +500,22 @@ fun StudioCompressionWorkspace(
                     }
                 }
             }
+        }
+
+        if (showPhotoPickerSheet) {
+            StudioPhotoPickerSheet(
+                photos = allPhotos,
+                selectedIds = batchSelectedIds.toSet(),
+                isMultiSelect = true,
+                title = "Select Photos to Compress",
+                onDismiss = { showPhotoPickerSheet = false },
+                onConfirmMultiSelect = { chosen ->
+                    batchSelectedIds.clear()
+                    batchSelectedIds.addAll(chosen.map { it.id })
+                    chosen.firstOrNull()?.let { selectedPhoto = it }
+                    showPhotoPickerSheet = false
+                }
+            )
         }
     }
 }

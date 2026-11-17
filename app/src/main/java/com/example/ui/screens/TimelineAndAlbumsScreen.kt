@@ -305,10 +305,14 @@ fun TimelineScreen(
         )
     }
 
-    // Compute relative date groups ("Today", "Yesterday", "This Week", "Earlier This Month", etc.)
-    val nowMs = remember(photos) { System.currentTimeMillis() }
-    val groupedPhotosByDate = remember(photos, nowMs) {
-        photos.groupBy { photo -> photo.relativeDateGroup(nowMs) }
+    // Compute relative date groups ("Today", "Yesterday", "This Week", "Earlier This Month", etc.) only when enabled
+    val nowMs = remember(photos, groupByRelativeDate) { System.currentTimeMillis() }
+    val groupedPhotosByDate = remember(photos, nowMs, groupByRelativeDate) {
+        if (groupByRelativeDate) {
+            photos.groupBy { photo -> photo.relativeDateGroup(nowMs) }
+        } else {
+            emptyMap()
+        }
     }
 
     val pullToRefreshState = rememberPullToRefreshState()
@@ -514,18 +518,20 @@ fun TimelineScreen(
                     )
 
                     // "On This Day / Flashback Memories" Story Carousel
-                    val flashbackMoments = remember(allPhotosForCategories) {
+                    val flashbackMoments = remember(allPhotosForCategories.size, allPhotosForCategories.firstOrNull()?.id) {
                         val currentCal = java.util.Calendar.getInstance()
+                        val currentYear = currentCal.get(java.util.Calendar.YEAR)
                         val currentMonth = currentCal.get(java.util.Calendar.MONTH)
                         val currentDay = currentCal.get(java.util.Calendar.DAY_OF_MONTH)
-                        allPhotosForCategories.filter { photo ->
-                            val photoCal = java.util.Calendar.getInstance().apply { timeInMillis = photo.dateTaken }
+                        val photoCal = java.util.Calendar.getInstance()
+                        allPhotosForCategories.asSequence().filter { photo ->
+                            photoCal.timeInMillis = photo.dateTaken
                             photoCal.get(java.util.Calendar.MONTH) == currentMonth &&
                                 photoCal.get(java.util.Calendar.DAY_OF_MONTH) == currentDay &&
-                                photoCal.get(java.util.Calendar.YEAR) < currentCal.get(java.util.Calendar.YEAR)
-                        }.ifEmpty {
+                                photoCal.get(java.util.Calendar.YEAR) < currentYear
+                        }.take(8).toList().ifEmpty {
                             // If no exact anniversary photo, showcase top favorite highlights as Flashbacks
-                            allPhotosForCategories.filter { it.isFavorite }.take(6)
+                            allPhotosForCategories.asSequence().filter { it.isFavorite }.take(6).toList()
                         }
                     }
 
@@ -582,6 +588,10 @@ fun TimelineScreen(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     items(flashbackMoments, key = { "memory_${it.id}" }) { memoryPhoto ->
+                                        val memoryContext = LocalContext.current
+                                        val memoryThumbModel = remember(memoryPhoto.id, memoryPhoto.filePath) {
+                                            PhotoImageProcessor.buildThumbnailRequest(memoryContext, memoryPhoto.filePath, 240, 240)
+                                        }
                                         Surface(
                                             shape = RoundedCornerShape(16.dp),
                                             color = activeTheme.surfaceVariant,
@@ -594,7 +604,7 @@ fun TimelineScreen(
                                         ) {
                                             Box(modifier = Modifier.fillMaxSize()) {
                                                 AsyncImage(
-                                                    model = PhotoImageProcessor.resolveCoilModel(memoryPhoto.filePath),
+                                                    model = memoryThumbModel,
                                                     contentDescription = memoryPhoto.title,
                                                     contentScale = ContentScale.Crop,
                                                     modifier = Modifier.fillMaxSize()
@@ -1259,40 +1269,9 @@ fun TimelineScreen(
                     items(
                         items = groupPhotos,
                         key = { photo -> photo.id },
+                        contentType = { "photo_card" },
                         span = { GridItemSpan(1) }
                     ) { photo ->
-                        Box(modifier = Modifier.animateItem()) {
-                            ThemeAdaptiveShowcaseCard(
-                                photo = photo,
-                                activeTheme = activeTheme,
-                                isHeroFullSpan = gridColumns == 1,
-                                isCompactGrid = gridColumns >= 3,
-                                isSquareGrid = filterState.isSquareGrid,
-                                isSelected = photo.id in selectedPhotoIds,
-                                isSelectionMode = isSelectionMode || selectedPhotoIds.isNotEmpty(),
-                                onClick = { onPhotoClick(photo) },
-                                onToggleSelect = { onToggleSelectPhoto(photo) },
-                                onToggleFavorite = { onToggleFavorite(photo) },
-                                onInspectExif = { onInspectExif(photo) },
-                                onOpenDarkroom = { onOpenDarkroom(photo) },
-                                onOpenCropStudio = { onOpenCropStudio(photo) },
-                                onAssignCategoryClick = { photoPendingCategoryAssignment = photo },
-                                onQuickRotate90 = { onQuickRotate90(photo) },
-                                onDuplicatePhoto = { onDuplicatePhoto(photo) },
-                                onMoveToVault = { onMoveToVault(photo) },
-                                onMoveToTrash = { onMoveToTrash(photo) },
-                                onRequestDeleteFromStorage = { onRequestDeletePhotos(listOf(photo)) }
-                            )
-                        }
-                    }
-                }
-            } else {
-                items(
-                    items = photos,
-                    key = { photo -> photo.id },
-                    span = { GridItemSpan(1) }
-                ) { photo ->
-                    Box(modifier = Modifier.animateItem()) {
                         ThemeAdaptiveShowcaseCard(
                             photo = photo,
                             activeTheme = activeTheme,
@@ -1316,14 +1295,46 @@ fun TimelineScreen(
                         )
                     }
                 }
+            } else {
+                items(
+                    items = photos,
+                    key = { photo -> photo.id },
+                    contentType = { "photo_card" },
+                    span = { GridItemSpan(1) }
+                ) { photo ->
+                    ThemeAdaptiveShowcaseCard(
+                        photo = photo,
+                        activeTheme = activeTheme,
+                        isHeroFullSpan = gridColumns == 1,
+                        isCompactGrid = gridColumns >= 3,
+                        isSquareGrid = filterState.isSquareGrid,
+                        isSelected = photo.id in selectedPhotoIds,
+                        isSelectionMode = isSelectionMode || selectedPhotoIds.isNotEmpty(),
+                        onClick = { onPhotoClick(photo) },
+                        onToggleSelect = { onToggleSelectPhoto(photo) },
+                        onToggleFavorite = { onToggleFavorite(photo) },
+                        onInspectExif = { onInspectExif(photo) },
+                        onOpenDarkroom = { onOpenDarkroom(photo) },
+                        onOpenCropStudio = { onOpenCropStudio(photo) },
+                        onAssignCategoryClick = { photoPendingCategoryAssignment = photo },
+                        onQuickRotate90 = { onQuickRotate90(photo) },
+                        onDuplicatePhoto = { onDuplicatePhoto(photo) },
+                        onMoveToVault = { onMoveToVault(photo) },
+                        onMoveToTrash = { onMoveToTrash(photo) },
+                        onRequestDeleteFromStorage = { onRequestDeletePhotos(listOf(photo)) }
+                    )
+                }
             }
         }
 
         // Interactive Right-Edge Draggable Timeline Date Scrubber Pill
         var isDraggingScrubber by remember { mutableStateOf(false) }
         var scrubberFraction by remember { mutableStateOf(0f) }
+        val firstVisibleIndex by remember {
+            derivedStateOf { timelineGridState.firstVisibleItemIndex }
+        }
 
-        val showScrubber = photos.size >= 4 || timelineGridState.firstVisibleItemIndex > 1
+        val showScrubber = photos.size >= 4 || firstVisibleIndex > 1
         AnimatedVisibility(
             visible = showScrubber && photos.isNotEmpty(),
             enter = fadeIn(tween(180)) + slideInHorizontally(initialOffsetX = { it }),
@@ -1335,7 +1346,7 @@ fun TimelineScreen(
             val activeIdx = if (isDraggingScrubber) {
                 (scrubberFraction * (photos.size - 1)).roundToInt().coerceIn(0, (photos.size - 1).coerceAtLeast(0))
             } else {
-                (timelineGridState.firstVisibleItemIndex - 1).coerceIn(0, (photos.size - 1).coerceAtLeast(0))
+                (firstVisibleIndex - 1).coerceIn(0, (photos.size - 1).coerceAtLeast(0))
             }
             val currentVisibleDate = photos.getOrNull(activeIdx)?.shortDateText?.ifBlank { "Top" } ?: "Top"
 
@@ -1343,7 +1354,7 @@ fun TimelineScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                AnimatedVisibility(visible = isDraggingScrubber || timelineGridState.firstVisibleItemIndex > 2) {
+                AnimatedVisibility(visible = isDraggingScrubber || firstVisibleIndex > 2) {
                     Surface(
                         shape = RoundedCornerShape(50),
                         color = activeTheme.primaryAccent,
@@ -2071,6 +2082,16 @@ private fun VisualPhotoCategoriesStrip(
     val unselectedCountText = activeTheme.textSecondary
     val selectedAccent = activeTheme.primaryAccent
 
+    val categoryCounts = remember(allPhotos.size, allPhotos.firstOrNull()?.id, specs) {
+        specs.associate { spec ->
+            spec.id to if (spec.id.equals("All", ignoreCase = true)) {
+                allPhotos.size
+            } else {
+                allPhotos.count { it.matchesCategory(spec.id) }
+            }
+        }
+    }
+
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
@@ -2080,9 +2101,7 @@ private fun VisualPhotoCategoriesStrip(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(specs, key = { "visual_cat_${it.id}" }) { spec ->
-            val matchingCount = remember(allPhotos, spec.id) {
-                allPhotos.count { it.matchesCategory(spec.id) }
-            }
+            val matchingCount = categoryCounts[spec.id] ?: 0
             val isSelected = selectedTag.equals(spec.id, ignoreCase = true)
 
             val chipBg by animateColorAsState(
@@ -2105,7 +2124,6 @@ private fun VisualPhotoCategoriesStrip(
                 shape = RoundedCornerShape(50),
                 color = chipBg,
                 modifier = Modifier
-                    .animateItem()
                     .height(38.dp)
                     .border(
                         width = 1.dp,
@@ -2851,6 +2869,18 @@ fun AlbumsGridScreen(
             }
         )
     }
+    val previewPathsByAlbum = remember(allPhotos.size, allPhotos.firstOrNull()?.id) {
+        val map = HashMap<String, MutableList<String>>()
+        for (photo in allPhotos) {
+            if (photo.filePath.isBlank()) continue
+            val key = photo.albumName.lowercase()
+            val list = map.getOrPut(key) { ArrayList(4) }
+            if (list.size < 4 && !list.contains(photo.filePath)) {
+                list.add(photo.filePath)
+            }
+        }
+        map
+    }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(if (isListView) 1 else 2),
@@ -3023,7 +3053,9 @@ fun AlbumsGridScreen(
                                 if (avatars.isNotEmpty()) {
                                     avatars.forEach { person ->
                                         AsyncImage(
-                                            model = PhotoImageProcessor.resolveCoilModel(person.avatarPhotoPath),
+                                            model = remember(person.avatarPhotoPath) {
+                                                PhotoImageProcessor.buildThumbnailRequest(context, person.avatarPhotoPath, 128, 128)
+                                            },
                                             contentDescription = person.displayTitle,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier
@@ -3104,7 +3136,9 @@ fun AlbumsGridScreen(
                             ) {
                                 if (featuredChild != null && featuredChild.avatarPhotoPath.isNotEmpty()) {
                                     AsyncImage(
-                                        model = PhotoImageProcessor.resolveCoilModel(featuredChild.avatarPhotoPath),
+                                        model = remember(featuredChild.avatarPhotoPath) {
+                                            PhotoImageProcessor.buildThumbnailRequest(context, featuredChild.avatarPhotoPath, 128, 128)
+                                        },
                                         contentDescription = featuredChild.displayTitle,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
@@ -3169,45 +3203,28 @@ fun AlbumsGridScreen(
             val isPinned = remember(album.name, pinnedAlbums) {
                 pinnedAlbums.any { it.equals(album.name, ignoreCase = true) }
             }
-            val albumPreviewPaths = remember(album.name, album.coverFilePath, allPhotos) {
-                val matching = allPhotos
-                    .asSequence()
-                    .filter { it.albumName.equals(album.name, ignoreCase = true) && PhotoImageProcessor.canDisplayPhotoPath(it.filePath) }
-                    .map { it.filePath }
-                    .distinct()
-                    .take(4)
-                    .toList()
+            val albumPreviewPaths = remember(album.name, album.coverFilePath, previewPathsByAlbum) {
+                val matching = previewPathsByAlbum[album.name.lowercase()].orEmpty()
                 if (matching.isNotEmpty()) {
                     matching
-                } else if (album.coverFilePath != null && PhotoImageProcessor.canDisplayPhotoPath(album.coverFilePath)) {
+                } else if (!album.coverFilePath.isNullOrBlank()) {
                     listOf(album.coverFilePath)
                 } else {
                     emptyList()
                 }
             }
 
-            Box(
-                modifier = Modifier.animateItem(
-                    fadeInSpec = tween(250),
-                    placementSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    ),
-                    fadeOutSpec = tween(180)
-                )
-            ) {
-                AlbumCard(
-                    album = album,
-                    previewPaths = albumPreviewPaths,
-                    isPinned = isPinned,
-                    isListView = isListView,
-                    activeTheme = activeTheme,
-                    onTogglePin = {
-                        pinnedAlbums = com.example.ui.studio.StudioPreferenceStore.togglePinnedAlbum(context, album.name)
-                    },
-                    onClick = { onAlbumClick(album.name) }
-                )
-            }
+            AlbumCard(
+                album = album,
+                previewPaths = albumPreviewPaths,
+                isPinned = isPinned,
+                isListView = isListView,
+                activeTheme = activeTheme,
+                onTogglePin = {
+                    pinnedAlbums = com.example.ui.studio.StudioPreferenceStore.togglePinnedAlbum(context, album.name)
+                },
+                onClick = { onAlbumClick(album.name) }
+            )
         }
     }
 }
@@ -3222,6 +3239,7 @@ private fun AlbumCard(
     onTogglePin: () -> Unit = {},
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
     val cornerRadius = activeTheme.layoutStyle.cardCornerDp.dp
     val itemCountLabel = if (album.photoCount == 1) "1 Photo" else "${album.photoCount} Photos"
 
@@ -3264,7 +3282,9 @@ private fun AlbumCard(
                                 horizontalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
                                 AsyncImage(
-                                    model = PhotoImageProcessor.resolveCoilModel(collageSlots[0]),
+                                    model = remember(collageSlots[0]) {
+                                        PhotoImageProcessor.buildThumbnailRequest(context, collageSlots[0], 240, 240)
+                                    },
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -3273,7 +3293,9 @@ private fun AlbumCard(
                                         .clip(RoundedCornerShape(8.dp))
                                 )
                                 AsyncImage(
-                                    model = PhotoImageProcessor.resolveCoilModel(collageSlots[1]),
+                                    model = remember(collageSlots[1]) {
+                                        PhotoImageProcessor.buildThumbnailRequest(context, collageSlots[1], 240, 240)
+                                    },
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -3289,7 +3311,9 @@ private fun AlbumCard(
                                 horizontalArrangement = Arrangement.spacedBy(3.dp)
                             ) {
                                 AsyncImage(
-                                    model = PhotoImageProcessor.resolveCoilModel(collageSlots[2]),
+                                    model = remember(collageSlots[2]) {
+                                        PhotoImageProcessor.buildThumbnailRequest(context, collageSlots[2], 240, 240)
+                                    },
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -3298,7 +3322,9 @@ private fun AlbumCard(
                                         .clip(RoundedCornerShape(8.dp))
                                 )
                                 AsyncImage(
-                                    model = PhotoImageProcessor.resolveCoilModel(collageSlots[3]),
+                                    model = remember(collageSlots[3]) {
+                                        PhotoImageProcessor.buildThumbnailRequest(context, collageSlots[3], 240, 240)
+                                    },
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -3312,8 +3338,11 @@ private fun AlbumCard(
 
                     previewPaths.size == 1 -> {
                         // Latest photo thumbnail
+                        val singleCoverPath = previewPaths.first()
                         AsyncImage(
-                            model = PhotoImageProcessor.resolveCoilModel(previewPaths.first()),
+                            model = remember(singleCoverPath) {
+                                PhotoImageProcessor.buildThumbnailRequest(context, singleCoverPath, 360, 360)
+                            },
                             contentDescription = album.name,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
