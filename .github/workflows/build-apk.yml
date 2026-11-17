@@ -21,14 +21,20 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android SDK licenses and install SDK 36.1
+      - name: Configure Android SDK and accept licenses
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platform-tools" "platforms;android-36.1" "build-tools;36.0.0" || \
-            sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" || true
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          SDKMANAGER=$(find "$SDK_DIR" -maxdepth 4 -name sdkmanager -type f 2>/dev/null | head -n 1 || true)
+          if [ -n "$SDKMANAGER" ]; then
+            chmod +x "$SDKMANAGER" || true
+            set +e
+            yes | "$SDKMANAGER" --licenses >/dev/null 2>&1
+            "$SDKMANAGER" "platform-tools" "platforms;android-36.1" "build-tools;36.0.0" || \
+              "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+            set -e
+          fi
 
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
@@ -49,12 +55,11 @@ jobs:
           fi
 
       - name: Build Debug APK
-        env:
-          GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
         run: |
           gradle assembleDebug \
+            --no-configuration-cache \
             --stacktrace \
-            -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8"
+            -Dorg.gradle.jvmargs="-Xmx3584m -XX:MaxMetaspaceSize=896m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
