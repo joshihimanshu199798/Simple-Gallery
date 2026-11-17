@@ -1603,6 +1603,11 @@ private fun MediaStoreGridPhotoCard(
         label = "mediastore_card_border_color"
     )
 
+    val context = LocalContext.current
+    val thumbnailRequest = remember(item.id, item.contentUri, item.sizeBytes) {
+        PhotoImageProcessor.buildThumbnailRequest(context, item.contentUri.toString())
+    }
+
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = activeTheme.surface),
@@ -1620,7 +1625,7 @@ private fun MediaStoreGridPhotoCard(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AsyncImage(
-                model = PhotoImageProcessor.resolveCoilModel(item.contentUri.toString()),
+                model = thumbnailRequest,
                 contentDescription = item.cleanTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

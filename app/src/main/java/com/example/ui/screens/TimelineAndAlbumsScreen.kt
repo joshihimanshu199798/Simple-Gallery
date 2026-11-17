@@ -2618,6 +2618,11 @@ private fun ThemeAdaptiveShowcaseCard(
         else -> 1.04f
     }
 
+    val context = LocalContext.current
+    val thumbnailRequest = remember(photo.id, photo.filePath, photo.sizeBytes) {
+        PhotoImageProcessor.buildThumbnailRequest(context, photo.filePath)
+    }
+
     Card(
         shape = RoundedCornerShape(cornerRadius),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isCompactGrid) 1.dp else 2.dp),
@@ -2645,7 +2650,7 @@ private fun ThemeAdaptiveShowcaseCard(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AsyncImage(
-                model = PhotoImageProcessor.resolveCoilModel(photo.filePath),
+                model = thumbnailRequest,
                 contentDescription = photo.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

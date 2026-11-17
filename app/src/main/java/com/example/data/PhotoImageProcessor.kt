@@ -68,6 +68,19 @@ object PhotoImageProcessor {
         }
     }
 
+    fun buildThumbnailRequest(context: Context, pathOrUri: String, widthPx: Int = 480, heightPx: Int = 480): coil.request.ImageRequest {
+        val model = resolveCoilModel(pathOrUri)
+        return coil.request.ImageRequest.Builder(context)
+            .data(model)
+            .size(widthPx, heightPx)
+            .scale(coil.size.Scale.FILL)
+            .precision(coil.size.Precision.INEXACT)
+            .allowHardware(true)
+            .crossfade(true)
+            .crossfade(140)
+            .build()
+    }
+
     fun canDisplayPhotoPath(pathOrUri: String): Boolean {
         if (pathOrUri.isBlank()) return false
         if (
