@@ -306,8 +306,8 @@ class GalleryViewModel(
 
     fun syncDeviceGalleryAutomatically(silent: Boolean = true) {
         val now = System.currentTimeMillis()
-        if (silent && (now - lastSyncTimestamp < 2500L)) {
-            // Debounce rapid repeated silent scans from lifecycle / observer
+        if (silent && allVisiblePhotos.value.isNotEmpty() && (now - lastSyncTimestamp < 2500L)) {
+            // Debounce rapid repeated silent scans only when photos are already loaded
             return
         }
         lastSyncTimestamp = now

@@ -291,22 +291,7 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
 
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    fun isMediaPermissionDeclaredInManifest(ctx: Context): Boolean {
-        return try {
-            val pkgInfo = ctx.packageManager.getPackageInfo(
-                ctx.packageName,
-                PackageManager.GET_PERMISSIONS
-            )
-            val perms = pkgInfo.requestedPermissions ?: emptyArray()
-            Manifest.permission.READ_MEDIA_IMAGES in perms ||
-                Manifest.permission.READ_EXTERNAL_STORAGE in perms
-        } catch (_: Exception) {
-            false
-        }
-    }
-
     fun checkFullMediaReadPermission(ctx: Context): Boolean {
-        if (!isMediaPermissionDeclaredInManifest(ctx)) return true
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(
                 ctx,
@@ -321,7 +306,6 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
     }
 
     fun checkMediaReadPermission(ctx: Context): Boolean {
-        if (!isMediaPermissionDeclaredInManifest(ctx)) return true
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val fullGranted = checkFullMediaReadPermission(ctx)
             val partialGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -344,14 +328,6 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
         Manifest.permission.READ_EXTERNAL_STORAGE
     }
 
-    val mediaPermissionState = rememberPermissionState(
-        permission = primaryReadMediaPermission
-    ) { isGranted ->
-        if (isGranted || checkMediaReadPermission(context)) {
-            viewModel.syncDeviceGalleryAutomatically(silent = false)
-        }
-    }
-
     val mediaPermissionsList = remember {
         when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> listOf(
@@ -365,15 +341,38 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
         }
     }
 
-    val multipleMediaPermissionsState = rememberMultiplePermissionsState(
-        permissions = mediaPermissionsList
-    ) { permissionsMap ->
-        if (permissionsMap.values.any { it } || checkMediaReadPermission(context)) {
+    var systemPermissionGranted by remember { mutableStateOf(checkMediaReadPermission(context)) }
+
+    val mediaPermissionState = rememberPermissionState(
+        permission = primaryReadMediaPermission
+    ) { isGranted ->
+        val nowGranted = isGranted || checkMediaReadPermission(context)
+        systemPermissionGranted = nowGranted
+        if (nowGranted) {
             viewModel.syncDeviceGalleryAutomatically(silent = false)
         }
     }
 
-    var systemPermissionGranted by remember { mutableStateOf(checkMediaReadPermission(context)) }
+    val multipleMediaPermissionsState = rememberMultiplePermissionsState(
+        permissions = mediaPermissionsList
+    ) { permissionsMap ->
+        val nowGranted = permissionsMap.values.any { it } || checkMediaReadPermission(context)
+        systemPermissionGranted = nowGranted
+        if (nowGranted) {
+            viewModel.syncDeviceGalleryAutomatically(silent = false)
+        }
+    }
+
+    val runtimePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissionsMap ->
+        val nowGranted = permissionsMap.values.any { it } || checkMediaReadPermission(context)
+        systemPermissionGranted = nowGranted
+        if (nowGranted) {
+            viewModel.syncDeviceGalleryAutomatically(silent = false)
+        }
+    }
+
     val hasMediaPermission = mediaPermissionState.status.isGranted ||
         multipleMediaPermissionsState.permissions.any { it.status.isGranted } ||
         systemPermissionGranted
@@ -381,10 +380,14 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
         multipleMediaPermissionsState.shouldShowRationale
 
     val requestMediaPermissions: () -> Unit = {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            multipleMediaPermissionsState.launchMultiplePermissionRequest()
-        } else {
-            mediaPermissionState.launchPermissionRequest()
+        try {
+            runtimePermissionLauncher.launch(mediaPermissionsList.toTypedArray())
+        } catch (_: Exception) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                multipleMediaPermissionsState.launchMultiplePermissionRequest()
+            } else {
+                mediaPermissionState.launchPermissionRequest()
+            }
         }
     }
 
@@ -403,23 +406,23 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
     }
 
     val triggerRescanDeviceGallery: () -> Unit = {
-        if (!mediaPermissionState.status.isGranted && !checkFullMediaReadPermission(context)) {
+        if (!checkFullMediaReadPermission(context)) {
             requestMediaPermissions()
         }
         viewModel.syncDeviceGalleryAutomatically(silent = false)
     }
 
-    // Observe Accompanist permission state transitions and scan local photos as soon as permission is granted
+    // Observe permission state transitions and scan local photos immediately when granted
     LaunchedEffect(mediaPermissionState.status.isGranted, hasMediaPermission) {
         if (mediaPermissionState.status.isGranted || hasMediaPermission) {
             systemPermissionGranted = true
-            viewModel.syncDeviceGalleryAutomatically(silent = true)
+            viewModel.syncDeviceGalleryAutomatically(silent = false)
         }
     }
 
     // Automatically request READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE on launch if not yet granted
     LaunchedEffect(Unit) {
-        if (hasMediaPermission || checkMediaReadPermission(context)) {
+        if (checkMediaReadPermission(context)) {
             systemPermissionGranted = true
             viewModel.syncDeviceGalleryAutomatically(silent = true)
         } else {
@@ -432,9 +435,10 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 val granted = checkMediaReadPermission(context)
+                val wasGranted = systemPermissionGranted
                 systemPermissionGranted = granted
                 if (granted || mediaPermissionState.status.isGranted) {
-                    viewModel.syncDeviceGalleryAutomatically(silent = true)
+                    viewModel.syncDeviceGalleryAutomatically(silent = wasGranted)
                 }
             }
         }

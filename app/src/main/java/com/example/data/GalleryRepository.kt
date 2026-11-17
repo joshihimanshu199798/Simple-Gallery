@@ -213,8 +213,15 @@ class GalleryRepository(
                     MediaStore.Images.Media.DATA
                 )
 
-                // Single authoritative content URI to avoid querying identical images twice
-                val queryUris = listOf(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+                val queryUris = buildList {
+                    add(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val volumeUri = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+                        if (volumeUri != MediaStore.Images.Media.EXTERNAL_CONTENT_URI) {
+                            add(volumeUri)
+                        }
+                    }
+                }
 
                 var totalAddedOrRepaired = 0
                 val pendingInsertBatch = mutableListOf<PhotoEntity>()

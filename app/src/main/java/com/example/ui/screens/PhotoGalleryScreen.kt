@@ -517,18 +517,6 @@ fun PhotoGalleryScreen(
     val coroutineScope = rememberCoroutineScope()
 
     fun hasSystemMediaReadPermission(ctx: Context): Boolean {
-        val isDeclared = try {
-            val pkgInfo = ctx.packageManager.getPackageInfo(
-                ctx.packageName,
-                PackageManager.GET_PERMISSIONS
-            )
-            val perms = pkgInfo.requestedPermissions ?: emptyArray()
-            Manifest.permission.READ_MEDIA_IMAGES in perms ||
-                Manifest.permission.READ_EXTERNAL_STORAGE in perms
-        } catch (_: Exception) {
-            false
-        }
-        if (!isDeclared) return true
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val fullGranted = ContextCompat.checkSelfPermission(
                 ctx,
