@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -212,13 +213,36 @@ class MainActivity : ComponentActivity() {
         // STEP 1: Configure App Check with launch intent before any UI, ViewModels, or Firebase operations
         configureAppCheck(this, intent)
 
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
         setContent {
             val context = LocalContext.current
             val galleryViewModel: GalleryViewModel = viewModel(
                 factory = GalleryViewModel.Factory(context)
             )
             val activeTheme by galleryViewModel.activeTheme.collectAsStateWithLifecycle()
+
+            LaunchedEffect(activeTheme.isLight) {
+                if (activeTheme.isLight) {
+                    enableEdgeToEdge(
+                        statusBarStyle = SystemBarStyle.light(
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT
+                        ),
+                        navigationBarStyle = SystemBarStyle.light(
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT
+                        )
+                    )
+                } else {
+                    enableEdgeToEdge(
+                        statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+                        navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    )
+                }
+            }
 
             SimpleGalleryTheme(themeSpec = activeTheme) {
                 SimpleGalleryApp(viewModel = galleryViewModel)
@@ -1677,19 +1701,19 @@ private fun FloatingGalleryBottomDock(
     modifier: Modifier = Modifier
 ) {
     val frostedContainerColor = if (activeTheme.isLight) {
-        activeTheme.dockBackground.copy(alpha = 0.88f)
+        activeTheme.dockBackground.copy(alpha = 0.96f)
     } else {
-        Color(0xFF141519).copy(alpha = 0.80f)
+        Color(0xFF18181C).copy(alpha = 0.96f)
     }
     val glassBorderBrush = Brush.verticalGradient(
         colors = listOf(
-            Color.White.copy(alpha = if (activeTheme.isLight) 0.50f else 0.24f),
-            activeTheme.borderStroke.copy(alpha = 0.55f)
+            Color.White.copy(alpha = if (activeTheme.isLight) 0.55f else 0.12f),
+            if (activeTheme.isLight) activeTheme.borderStroke.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.08f)
         )
     )
     val glassSheenBrush = Brush.verticalGradient(
         colors = listOf(
-            Color.White.copy(alpha = if (activeTheme.isLight) 0.35f else 0.11f),
+            Color.White.copy(alpha = if (activeTheme.isLight) 0.28f else 0.06f),
             Color.Transparent
         )
     )
@@ -1701,7 +1725,8 @@ private fun FloatingGalleryBottomDock(
                 Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,
-                        activeTheme.background.copy(alpha = if (activeTheme.isLight) 0.55f else 0.72f)
+                        activeTheme.background.copy(alpha = if (activeTheme.isLight) 0.85f else 0.88f),
+                        activeTheme.background.copy(alpha = 0.98f)
                     )
                 )
             )
@@ -1713,7 +1738,7 @@ private fun FloatingGalleryBottomDock(
         Surface(
             shape = RoundedCornerShape(50),
             color = frostedContainerColor,
-            shadowElevation = 18.dp,
+            shadowElevation = 24.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(62.dp)

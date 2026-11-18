@@ -22,4 +22,21 @@
     <string name="overwrite_original">Overwrite</string>
     <string name="slideshow_title">Slideshow</string>
     <string name="exif_inspector">EXIF &amp; File Details</string>
+    <string name="darkroom_cancel">Cancel</string>
+    <string name="darkroom_ready">Ready</string>
+    <string name="darkroom_save_copy">Save Copy</string>
+    <string name="darkroom_original_badge">ORIGINAL</string>
+    <string name="darkroom_edited_badge">EDITED</string>
+    <string name="darkroom_tool_exposure">Exposure</string>
+    <string name="darkroom_tool_crop">Crop</string>
+    <string name="darkroom_tool_color_balance">Color Balance</string>
+    <string name="darkroom_tool_film_luts">Film LUTs</string>
+    <string name="darkroom_tool_effects">Effects</string>
+    <string name="darkroom_slider_brightness">Brightness</string>
+    <string name="darkroom_slider_contrast">Contrast</string>
+    <string name="darkroom_slider_highlights">Highlights</string>
+    <string name="darkroom_slider_shadows">Shadows</string>
+    <string name="darkroom_slider_color_temp">Color Temperature</string>
+    <string name="darkroom_slider_intensity">Intensity</string>
+    <string name="darkroom_reset_param">Reset adjustment</string>
 </resources>

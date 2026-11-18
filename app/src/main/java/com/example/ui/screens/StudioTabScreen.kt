@@ -168,7 +168,10 @@ fun StudioTabScreen(
     var exifFrameTargetPhoto by remember { mutableStateOf<PhotoEntity?>(null) }
 
     LaunchedEffect(currentSubScreen) {
-        onWorkspaceActiveChanged(currentSubScreen != StudioSubScreen.DASHBOARD)
+        onWorkspaceActiveChanged(
+            currentSubScreen != StudioSubScreen.DASHBOARD &&
+                currentSubScreen != StudioSubScreen.PHOTO_EDITOR
+        )
     }
 
     // Ensure back press returns to Studio Dashboard if in a sub-screen

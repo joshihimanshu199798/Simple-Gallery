@@ -23,7 +23,100 @@ object CinematicFilterCatalog {
     }
 
     val ALL_PRESETS: List<StudioFilterItem> = listOf(
-        // === 1. CINEMATIC ===
+        // === 1. FILM ===
+        StudioFilterItem(
+            id = "film_kodak_gold100",
+            name = "Kodak Gold 100",
+            category = FilterCategory.FILM,
+            description = "Iconic sun-drenched golden warmth, nostalgic amber highlights & rich skin",
+            matrixArray = floatArrayOf(
+                1.18f, 0.06f, 0.01f, 0f, 14f,
+                0.04f, 1.08f, 0.02f, 0f, 8f,
+                -0.04f, 0.02f, 0.88f, 0f, -10f,
+                0f, 0f, 0f, 1f, 0f
+            ),
+            previewGradient = listOf(Color(0xFFF59E0B), Color(0xFFE57A5C))
+        ),
+        StudioFilterItem(
+            id = "film_velvia50",
+            name = "Fuji Velvia 50",
+            category = FilterCategory.FILM,
+            description = "Legendary slide film high saturation, vivid skies & lush greens",
+            matrixArray = floatArrayOf(
+                1.22f, 0.05f, 0.02f, 0f, 10f,
+                0.02f, 1.24f, 0.04f, 0f, 8f,
+                0.04f, 0.02f, 1.25f, 0f, 12f,
+                0f, 0f, 0f, 1f, 0f
+            ),
+            previewGradient = listOf(Color(0xFF84CC16), Color(0xFF0EA5E9))
+        ),
+        StudioFilterItem(
+            id = "film_cinestill800",
+            name = "CineStill 800T",
+            category = FilterCategory.FILM,
+            description = "Tungsten balance, vibrant red halation & deep blue undertones",
+            matrixArray = floatArrayOf(
+                1.15f, 0.02f, 0.05f, 0f, 12f,
+                -0.02f, 0.96f, 0.08f, 0f, -4f,
+                0.04f, 0.04f, 1.28f, 0f, 18f,
+                0f, 0f, 0f, 1f, 0f
+            ),
+            previewGradient = listOf(Color(0xFFEF4444), Color(0xFF2563EB))
+        ),
+        StudioFilterItem(
+            id = "film_portra400",
+            name = "Portra 400",
+            category = FilterCategory.FILM,
+            description = "Smooth natural skin tones, soft pastels & gentle latitude",
+            matrixArray = floatArrayOf(
+                1.12f, 0.03f, 0.02f, 0f, 8f,
+                0.03f, 1.04f, 0.03f, 0f, 6f,
+                0.02f, 0.04f, 0.94f, 0f, -2f,
+                0f, 0f, 0f, 1f, 0f
+            ),
+            previewGradient = listOf(Color(0xFFFDBA74), Color(0xFFFED7AA))
+        ),
+        StudioFilterItem(
+            id = "film_kodachrome64",
+            name = "Kodachrome 64",
+            category = FilterCategory.FILM,
+            description = "Rich classic 1960s warmth, punchy reds and yellow-greens",
+            matrixArray = floatArrayOf(
+                1.20f, 0.06f, 0.02f, 0f, 14f,
+                0.04f, 1.10f, 0.02f, 0f, 6f,
+                0.02f, 0.02f, 0.88f, 0f, -12f,
+                0f, 0f, 0f, 1f, 0f
+            ),
+            previewGradient = listOf(Color(0xFFDC2626), Color(0xFFFBBF24))
+        ),
+        StudioFilterItem(
+            id = "film_ektar100",
+            name = "Ektar 100",
+            category = FilterCategory.FILM,
+            description = "Ultra-fine grain emulsion with high contrast & crisp clarity",
+            matrixArray = floatArrayOf(
+                1.16f, 0.02f, 0.02f, 0f, 6f,
+                0.02f, 1.14f, 0.02f, 0f, 6f,
+                0.02f, 0.02f, 1.16f, 0f, 8f,
+                0f, 0f, 0f, 1f, 0f
+            ),
+            previewGradient = listOf(Color(0xFF3B82F6), Color(0xFFEF4444))
+        ),
+        StudioFilterItem(
+            id = "film_tri_x",
+            name = "Tri-X 400 Grain",
+            category = FilterCategory.FILM,
+            description = "Gritty silver-rich analog black and white emulsion",
+            matrixArray = floatArrayOf(
+                0.33f, 0.59f, 0.11f, 0f, -5f,
+                0.33f, 0.59f, 0.11f, 0f, -5f,
+                0.33f, 0.59f, 0.11f, 0f, -5f,
+                0f, 0f, 0f, 1f, 0f
+            ),
+            previewGradient = listOf(Color(0xFFE2E8F0), Color(0xFF0F172A))
+        ),
+
+        // === 2. CINEMATIC ===
         StudioFilterItem(
             id = "cine_blockbuster",
             name = "Teal & Orange",
@@ -101,86 +194,6 @@ object CinematicFilterCatalog {
                 0f, 0f, 0f, 1f, 0f
             ),
             previewGradient = listOf(Color(0xFF94A3B8), Color(0xFF334155))
-        ),
-
-        // === 2. FILM ===
-        StudioFilterItem(
-            id = "film_portra400",
-            name = "Portra 400",
-            category = FilterCategory.FILM,
-            description = "Smooth natural skin tones, soft pastels & gentle latitude",
-            matrixArray = floatArrayOf(
-                1.12f, 0.03f, 0.02f, 0f, 8f,
-                0.03f, 1.04f, 0.03f, 0f, 6f,
-                0.02f, 0.04f, 0.94f, 0f, -2f,
-                0f, 0f, 0f, 1f, 0f
-            ),
-            previewGradient = listOf(Color(0xFFFDBA74), Color(0xFFFED7AA))
-        ),
-        StudioFilterItem(
-            id = "film_cinestill800",
-            name = "CineStill 800T",
-            category = FilterCategory.FILM,
-            description = "Tungsten balance, vibrant red halation & deep blue undertones",
-            matrixArray = floatArrayOf(
-                1.15f, 0.02f, 0.05f, 0f, 12f,
-                -0.02f, 0.96f, 0.08f, 0f, -4f,
-                0.04f, 0.04f, 1.28f, 0f, 18f,
-                0f, 0f, 0f, 1f, 0f
-            ),
-            previewGradient = listOf(Color(0xFFEF4444), Color(0xFF2563EB))
-        ),
-        StudioFilterItem(
-            id = "film_velvia50",
-            name = "Velvia 50",
-            category = FilterCategory.FILM,
-            description = "Legendary slide film high saturation, vivid skies & lush greens",
-            matrixArray = floatArrayOf(
-                1.22f, 0.05f, 0.02f, 0f, 10f,
-                0.02f, 1.24f, 0.04f, 0f, 8f,
-                0.04f, 0.02f, 1.25f, 0f, 12f,
-                0f, 0f, 0f, 1f, 0f
-            ),
-            previewGradient = listOf(Color(0xFF84CC16), Color(0xFF0EA5E9))
-        ),
-        StudioFilterItem(
-            id = "film_kodachrome64",
-            name = "Kodachrome 64",
-            category = FilterCategory.FILM,
-            description = "Rich classic 1960s warmth, punchy reds and yellow-greens",
-            matrixArray = floatArrayOf(
-                1.20f, 0.06f, 0.02f, 0f, 14f,
-                0.04f, 1.10f, 0.02f, 0f, 6f,
-                0.02f, 0.02f, 0.88f, 0f, -12f,
-                0f, 0f, 0f, 1f, 0f
-            ),
-            previewGradient = listOf(Color(0xFFDC2626), Color(0xFFFBBF24))
-        ),
-        StudioFilterItem(
-            id = "film_ektar100",
-            name = "Ektar 100",
-            category = FilterCategory.FILM,
-            description = "Ultra-fine grain emulsion with high contrast & crisp clarity",
-            matrixArray = floatArrayOf(
-                1.16f, 0.02f, 0.02f, 0f, 6f,
-                0.02f, 1.14f, 0.02f, 0f, 6f,
-                0.02f, 0.02f, 1.16f, 0f, 8f,
-                0f, 0f, 0f, 1f, 0f
-            ),
-            previewGradient = listOf(Color(0xFF3B82F6), Color(0xFFEF4444))
-        ),
-        StudioFilterItem(
-            id = "film_tri_x",
-            name = "Tri-X 400 Grain",
-            category = FilterCategory.FILM,
-            description = "Gritty silver-rich analog black and white emulsion",
-            matrixArray = floatArrayOf(
-                0.33f, 0.59f, 0.11f, 0f, -5f,
-                0.33f, 0.59f, 0.11f, 0f, -5f,
-                0.33f, 0.59f, 0.11f, 0f, -5f,
-                0f, 0f, 0f, 1f, 0f
-            ),
-            previewGradient = listOf(Color(0xFFE2E8F0), Color(0xFF0F172A))
         ),
 
         // === 3. VINTAGE ===

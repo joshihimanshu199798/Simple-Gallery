@@ -308,33 +308,36 @@ object AppThemeCatalog {
         ),
         CompleteUiThemeSpec(
             id = "oled_pitch_black_dark",
-            name = "OLED Pitch Black (Dark)",
-            shortBadge = "PURE OLED",
+            name = "Darkroom Charcoal (Dark)",
+            shortBadge = "DARKROOM",
             isLight = false,
             layoutStyle = GalleryLayoutStyle.BENTO_SHOWCASE,
-            background = Color(0xFF000000),
-            backgroundSecondary = Color(0xFF0A0A0C),
-            surface = Color(0xFF141312),
-            surfaceVariant = Color(0xFF221F1D),
-            primaryAccent = Color(0xFFE06D53),
+            background = Color(0xFF0E0E10),
+            backgroundSecondary = Color(0xFF121215),
+            surface = Color(0xFF18181C),
+            surfaceVariant = Color(0xFF222228),
+            primaryAccent = Color(0xFFE57A5C),
             onPrimaryAccent = Color(0xFFFFFFFF),
             secondaryAccent = Color(0xFFD9822B),
             onSecondaryAccent = Color(0xFFFFFFFF),
-            tertiaryAccent = Color(0xFF4A7C59),
-            textPrimary = Color(0xFFFAF8F5),
-            textSecondary = Color(0xFFB0A89F),
-            borderStroke = Color(0xFF2E2A27),
-            topStripBackground = Color(0xFF141312),
-            topStripText = Color(0xFFE06D53),
-            captionOverlayBackground = Color(0xE6050505),
-            dockBackground = Color(0xFF141312)
+            tertiaryAccent = Color(0xFF22C55E),
+            textPrimary = Color(0xFFF5F5F7),
+            textSecondary = Color(0xFF9A9AA4),
+            borderStroke = Color(0xFF252529),
+            topStripBackground = Color(0xFF18181C),
+            topStripText = Color(0xFFE57A5C),
+            captionOverlayBackground = Color(0xE60E0E10),
+            dockBackground = Color(0xFF18181C)
         )
     )
+
+    val defaultDarkTheme: CompleteUiThemeSpec =
+        allThemes.first { it.id == "oled_pitch_black_dark" }
 
     val lightThemes: List<CompleteUiThemeSpec> = allThemes.filter { it.isLight }
     val darkThemes: List<CompleteUiThemeSpec> = allThemes.filter { !it.isLight }
 
     fun findById(id: String): CompleteUiThemeSpec {
-        return allThemes.firstOrNull { it.id == id } ?: allThemes.first()
+        return allThemes.firstOrNull { it.id == id } ?: defaultDarkTheme
     }
 }

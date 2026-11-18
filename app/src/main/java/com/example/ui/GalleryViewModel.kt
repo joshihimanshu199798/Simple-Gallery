@@ -87,7 +87,8 @@ class GalleryViewModel(
 
     private val _baseTheme = MutableStateFlow(
         AppThemeCatalog.findById(
-            prefs.getString("active_theme_id_v3", "oled_pitch_black_dark") ?: "oled_pitch_black_dark"
+            prefs.getString("active_theme_id_v4", AppThemeCatalog.defaultDarkTheme.id)
+                ?: AppThemeCatalog.defaultDarkTheme.id
         )
     )
 
@@ -409,7 +410,7 @@ class GalleryViewModel(
         _baseTheme.value = theme
         _layoutStyleOverride.value = null
         prefs.edit()
-            .putString("active_theme_id_v3", theme.id)
+            .putString("active_theme_id_v4", theme.id)
             .remove("preferred_layout_style_override")
             .commit()
         postMessage("Applied UI Theme: ${theme.name}")
@@ -418,7 +419,7 @@ class GalleryViewModel(
     fun toggleLightDarkThemeQuick() {
         val current = _baseTheme.value
         val next = if (current.isLight) {
-            AppThemeCatalog.darkThemes.first()
+            AppThemeCatalog.defaultDarkTheme
         } else {
             AppThemeCatalog.lightThemes.first()
         }

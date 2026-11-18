@@ -7,22 +7,20 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -123,7 +121,6 @@ private val GoldAccent: Color
 private val CyanAccent: Color
     @Composable get() = LocalCompleteUiTheme.current.tertiaryAccent
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun StudioHomeScreen(
     photos: List<PhotoEntity>,
@@ -186,23 +183,20 @@ fun StudioHomeScreen(
                     )
                 )
             )
-            .windowInsetsPadding(WindowInsets.statusBars)
             .verticalScroll(scrollState)
-            .padding(bottom = 120.dp)
+            .navigationBarsPadding()
+            .padding(bottom = 148.dp)
             .testTag("studio_home_screen")
     ) {
-        // 1. Standardized Studio Header with Ready badge & Import Actions
+        // 1. Clean Studio Header (Title + Ready pill + Library summary only)
         StudioHomeHeaderBanner(
             totalPhotosCount = photos.size,
-            editedCount = recentEdits.size,
-            onBrowseLibraryClick = { showPhotoPickerSheet = true },
-            onPickClick = onPickFromStorage,
-            onCameraClick = onCaptureCamera
+            editedCount = recentEdits.size
         )
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // 2. Prominent Target Photo Selection Card & Strip
+        // 2. Target Photo Selection Card (compact single-row empty state + 3-button action bar)
         Card(
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = DarkGraphiteCard),
@@ -210,60 +204,47 @@ fun StudioHomeScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .border(1.dp, NeonGreenAccent.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
+                .border(1.dp, NeonGreenAccent.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
                 .testTag("studio_active_photo_card")
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable {
-                                if (photos.isNotEmpty()) {
-                                    showPhotoPickerSheet = true
-                                } else {
-                                    onPickFromStorage()
-                                }
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            if (photos.isNotEmpty()) {
+                                showPhotoPickerSheet = true
+                            } else {
+                                onPickFromStorage()
                             }
-                    ) {
+                        }
+                ) {
+                    if (activePhoto != null) {
                         Box(
                             modifier = Modifier
-                                .size(64.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                                .size(54.dp)
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(LocalCompleteUiTheme.current.surfaceVariant)
-                                .border(2.dp, NeonGreenAccent, RoundedCornerShape(14.dp)),
+                                .border(1.5.dp, NeonGreenAccent, RoundedCornerShape(12.dp)),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (activePhoto != null) {
-                                val thumbReq = remember(activePhoto.id, activePhoto.filePath) {
-                                    PhotoImageProcessor.buildThumbnailRequest(context, activePhoto.filePath, 200, 200)
-                                }
-                                AsyncImage(
-                                    model = thumbReq,
-                                    contentDescription = activePhoto.title,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.AddPhotoAlternate,
-                                    contentDescription = "No photo selected",
-                                    tint = NeonGreenAccent,
-                                    modifier = Modifier.size(26.dp)
-                                )
+                            val thumbReq = remember(activePhoto.id, activePhoto.filePath) {
+                                PhotoImageProcessor.buildThumbnailRequest(context, activePhoto.filePath, 200, 200)
                             }
+                            AsyncImage(
+                                model = thumbReq,
+                                contentDescription = activePhoto.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
 
                         Column(modifier = Modifier.weight(1f)) {
@@ -285,30 +266,61 @@ fun StudioHomeScreen(
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
-                                if (photos.isNotEmpty()) {
-                                    Text(
-                                        text = "• ${photos.size} in library",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = TextMuted
-                                    )
-                                }
+                                Text(
+                                    text = "• ${photos.size} in library",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextMuted,
+                                    maxLines = 1
+                                )
                             }
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = activePhoto?.title ?: "No Photo Selected Yet",
+                                text = activePhoto.title,
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                 color = TextWhite,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = if (activePhoto != null) {
-                                    "${activePhoto.albumName} • ${activePhoto.resolutionText} • ${activePhoto.formattedSize}"
-                                } else {
-                                    "Tap Select Photo to choose from gallery or device storage"
-                                },
+                                text = "${activePhoto.albumName} • ${activePhoto.resolutionText} • ${activePhoto.formattedSize}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = TextMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(NeonGreenDim)
+                                .border(1.dp, NeonGreenAccent.copy(alpha = 0.5f), RoundedCornerShape(11.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AddPhotoAlternate,
+                                contentDescription = "No photo selected",
+                                tint = NeonGreenAccent,
+                                modifier = Modifier.size(21.dp)
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "SELECTED PHOTO",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 0.5.sp
+                                ),
+                                color = NeonGreenAccent,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "No Photo Selected Yet",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = TextWhite,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -316,7 +328,7 @@ fun StudioHomeScreen(
                     }
                 }
 
-                // Explicit Action Buttons for selecting a photo from Library Grid or Device Storage
+                // Clean 3-button Action Row (exclusively inside the Selected Photo card)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -337,6 +349,7 @@ fun StudioHomeScreen(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                         modifier = Modifier
                             .weight(1f)
+                            .heightIn(min = 44.dp)
                             .testTag("studio_open_photo_picker_button")
                     ) {
                         Icon(
@@ -357,7 +370,9 @@ fun StudioHomeScreen(
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, DarkGraphiteBorder),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                        modifier = Modifier.testTag("studio_pick_device_photo_button")
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .testTag("studio_pick_device_photo_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.AddPhotoAlternate,
@@ -377,8 +392,10 @@ fun StudioHomeScreen(
                         onClick = onCaptureCamera,
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, DarkGraphiteBorder),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        modifier = Modifier.testTag("studio_camera_photo_button")
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .testTag("studio_camera_photo_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.PhotoCamera,
@@ -506,111 +523,151 @@ fun StudioHomeScreen(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // 3. Section: Photo Editing Suite (Concise, Non-Truncating Titles)
+        // 3. Section: Darkroom & Color (Uniform 3x2 Equal-Height Grid)
         StudioSectionTitle(title = "Darkroom & Color", icon = Icons.Default.Palette)
-        FlowRow(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            maxItemsInEachRow = 2
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            StudioToolCardDetailed(
-                title = "Exposure",
-                description = "Brightness, contrast & highlights",
-                icon = Icons.Default.Tune,
-                accentColor = NeonGreenAccent,
-                onClick = { onLaunchEditor(activePhoto, EditorToolTab.LIGHT) },
-                testTag = "studio_card_edit_photo",
-                modifier = Modifier.weight(1f)
-            )
-            StudioToolCardDetailed(
-                title = "Crop & Rotate",
-                description = "Aspect ratios, 90° turn & flip",
-                icon = Icons.Default.Crop,
-                accentColor = GoldAccent,
-                onClick = { onLaunchEditor(activePhoto, EditorToolTab.CROP) },
-                testTag = "studio_card_crop",
-                modifier = Modifier.weight(1f)
-            )
-            StudioToolCardDetailed(
-                title = "Color Balance",
-                description = "Warmth, tint & saturation",
-                icon = Icons.Default.Palette,
-                accentColor = CyanAccent,
-                onClick = { onLaunchEditor(activePhoto, EditorToolTab.COLOR) },
-                testTag = "studio_card_color",
-                modifier = Modifier.weight(1f)
-            )
-            StudioToolCardDetailed(
-                title = "Film LUTs",
-                description = "42 analog & cinema grades",
-                icon = Icons.Default.Movie,
-                accentColor = Color(0xFFEC4899),
-                onClick = { onLaunchEditor(activePhoto, EditorToolTab.FILTERS) },
-                testTag = "studio_card_filters",
-                modifier = Modifier.weight(1f)
-            )
-            StudioToolCardDetailed(
-                title = "Vignette & Grain",
-                description = "Optical shading & film texture",
-                icon = Icons.Default.FilterVintage,
-                accentColor = Color(0xFF10B981),
-                onClick = { onLaunchEditor(activePhoto, EditorToolTab.DETAIL) },
-                testTag = "studio_card_creative_fx",
-                modifier = Modifier.weight(1f)
-            )
-            StudioToolCardDetailed(
-                title = "White Balance",
-                description = "Kelvin temp & shadow recovery",
-                icon = Icons.Default.Memory,
-                accentColor = Color(0xFFF43F5E),
-                onClick = { onLaunchRawEditor(activePhoto) },
-                testTag = "studio_card_raw",
-                modifier = Modifier.weight(1f)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StudioToolCardDetailed(
+                    title = "Exposure",
+                    description = "Brightness & contrast",
+                    icon = Icons.Default.Tune,
+                    accentColor = NeonGreenAccent,
+                    onClick = { onLaunchEditor(activePhoto, EditorToolTab.LIGHT) },
+                    testTag = "studio_card_edit_photo",
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
+                StudioToolCardDetailed(
+                    title = "Crop & Rotate",
+                    description = "Aspect ratio & flip",
+                    icon = Icons.Default.Crop,
+                    accentColor = GoldAccent,
+                    onClick = { onLaunchEditor(activePhoto, EditorToolTab.CROP) },
+                    testTag = "studio_card_crop",
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StudioToolCardDetailed(
+                    title = "Color Balance",
+                    description = "Warmth, tint & color",
+                    icon = Icons.Default.Palette,
+                    accentColor = CyanAccent,
+                    onClick = { onLaunchEditor(activePhoto, EditorToolTab.COLOR) },
+                    testTag = "studio_card_color",
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
+                StudioToolCardDetailed(
+                    title = "Film LUTs",
+                    description = "43 analog & cinema",
+                    icon = Icons.Default.Movie,
+                    accentColor = Color(0xFFEC4899),
+                    onClick = { onLaunchEditor(activePhoto, EditorToolTab.FILTERS) },
+                    testTag = "studio_card_filters",
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StudioToolCardDetailed(
+                    title = "Vignette & Grain",
+                    description = "Shading & film grain",
+                    icon = Icons.Default.FilterVintage,
+                    accentColor = Color(0xFF22C55E),
+                    onClick = { onLaunchEditor(activePhoto, EditorToolTab.DETAIL) },
+                    testTag = "studio_card_creative_fx",
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
+                StudioToolCardDetailed(
+                    title = "White Balance",
+                    description = "Kelvin & shadows",
+                    icon = Icons.Default.Memory,
+                    accentColor = Color(0xFFF43F5E),
+                    onClick = { onLaunchRawEditor(activePhoto) },
+                    testTag = "studio_card_raw",
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // 4. Section: Creative & Batch Studio
+        // 4. Section: Creative & Batch Studio (Balanced 2x2 Equal-Height Grid)
         StudioSectionTitle(title = "Creative & Batch", icon = Icons.Default.AutoAwesomeMosaic)
-        FlowRow(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            maxItemsInEachRow = 2
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            StudioToolCardDetailed(
-                title = "Collage",
-                description = "Grid, bento & filmstrip layouts",
-                icon = Icons.Default.AutoAwesomeMosaic,
-                accentColor = NeonGreenAccent,
-                onClick = onLaunchCollage,
-                testTag = "studio_card_collage",
-                modifier = Modifier.weight(1f)
-            )
-            StudioToolCardDetailed(
-                title = "Batch Filters",
-                description = "Bulk LUT grades, crop & rotate",
-                icon = Icons.Default.Layers,
-                accentColor = CyanAccent,
-                onClick = { onLaunchBatch(BatchActionMode.BATCH_EDIT) },
-                testTag = "studio_card_batch",
-                modifier = Modifier.weight(1f)
-            )
-            StudioToolCardDetailed(
-                title = "EXIF & Camera Frame",
-                description = "Gallery borders stamped with camera or child age",
-                icon = Icons.Default.BrandingWatermark,
-                accentColor = GoldAccent,
-                onClick = { onOpenExifFrameStudio(activePhoto) },
-                testTag = "studio_card_exif_frame",
-                modifier = Modifier.weight(1f)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StudioToolCardDetailed(
+                    title = "Collage",
+                    description = "Grid & bento layouts",
+                    icon = Icons.Default.AutoAwesomeMosaic,
+                    accentColor = NeonGreenAccent,
+                    onClick = onLaunchCollage,
+                    testTag = "studio_card_collage",
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
+                StudioToolCardDetailed(
+                    title = "Batch Filters",
+                    description = "Bulk LUTs & resize",
+                    icon = Icons.Default.Layers,
+                    accentColor = CyanAccent,
+                    onClick = { onLaunchBatch(BatchActionMode.BATCH_EDIT) },
+                    testTag = "studio_card_batch",
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StudioToolCardDetailed(
+                    title = "EXIF & Camera Frame",
+                    description = "Gallery mat & stamps",
+                    icon = Icons.Default.BrandingWatermark,
+                    accentColor = GoldAccent,
+                    onClick = { onOpenExifFrameStudio(activePhoto) },
+                    testTag = "studio_card_exif_frame",
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
+                StudioToolCardDetailed(
+                    title = "Before / After",
+                    description = "Compare original edit",
+                    icon = Icons.Default.Compare,
+                    accentColor = Color(0xFF38BDF8),
+                    onClick = onOpenCompare,
+                    testTag = "studio_card_compare",
+                    modifier = Modifier.weight(1f).fillMaxHeight()
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -665,31 +722,30 @@ fun StudioHomeScreen(
 
         // 6. Section: Privacy & Recycle Bin
         StudioSectionTitle(title = "Privacy & Recycle Bin", icon = Icons.Default.Lock)
-        FlowRow(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            maxItemsInEachRow = 2
+                .padding(horizontal = 16.dp)
+                .height(IntrinsicSize.Max),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             StudioToolCardDetailed(
                 title = "Private Vault",
-                description = if (vaultPhotosCount > 0) "$vaultPhotosCount photos locked" else "PIN protected gallery",
+                description = if (vaultPhotosCount > 0) "$vaultPhotosCount locked" else "PIN protected gallery",
                 icon = Icons.Default.Lock,
                 accentColor = GoldAccent,
                 onClick = onLaunchVault,
                 testTag = "studio_card_vault",
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f).fillMaxHeight()
             )
             StudioToolCardDetailed(
                 title = "Recycle Bin",
-                description = if (trashedPhotosCount > 0) "$trashedPhotosCount deleted photos" else "Empty recycle bin",
+                description = if (trashedPhotosCount > 0) "$trashedPhotosCount deleted" else "Empty recycle bin",
                 icon = Icons.Default.DeleteOutline,
                 accentColor = Color(0xFFEF4444),
                 onClick = onLaunchRecycleBin,
                 testTag = "studio_card_recycle_bin",
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f).fillMaxHeight()
             )
         }
 
@@ -748,132 +804,52 @@ fun StudioHomeScreen(
 @Composable
 private fun StudioHomeHeaderBanner(
     totalPhotosCount: Int,
-    editedCount: Int,
-    onBrowseLibraryClick: () -> Unit,
-    onPickClick: () -> Unit,
-    onCameraClick: () -> Unit
+    editedCount: Int
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = "Studio",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.ExtraBold
-                    ),
-                    color = TextWhite
+            Text(
+                text = "Studio",
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.ExtraBold
+                ),
+                color = TextWhite
+            )
+
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = Color(0xFF22C55E).copy(alpha = 0.14f),
+                border = BorderStroke(
+                    1.dp,
+                    Color(0xFF22C55E).copy(alpha = 0.35f)
                 )
-
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = NeonGreenDim,
-                    border = BorderStroke(
-                        1.dp,
-                        NeonGreenAccent.copy(alpha = 0.35f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF22C55E))
                     )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF10B981))
-                        )
-                        Text(
-                            text = "Ready",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold
-                            ),
-                            color = NeonGreenAccent
-                        )
-                    }
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = LocalCompleteUiTheme.current.surfaceVariant,
-                    border = BorderStroke(1.dp, DarkGraphiteBorder),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable(onClick = onBrowseLibraryClick)
-                        .testTag("studio_header_select_photo_button")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Collections,
-                            contentDescription = "Select Photo",
-                            tint = NeonGreenAccent,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = "Select Photo",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = TextWhite
-                        )
-                    }
-                }
-
-                Surface(
-                    shape = CircleShape,
-                    color = LocalCompleteUiTheme.current.surfaceVariant,
-                    border = BorderStroke(1.dp, DarkGraphiteBorder),
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onPickClick)
-                        .testTag("studio_pick_storage_button")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.AddPhotoAlternate,
-                            contentDescription = "Pick Photo",
-                            tint = NeonGreenAccent,
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                }
-
-                Surface(
-                    shape = CircleShape,
-                    color = LocalCompleteUiTheme.current.surfaceVariant,
-                    border = BorderStroke(1.dp, DarkGraphiteBorder),
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onCameraClick)
-                        .testTag("studio_quick_camera_button")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.PhotoCamera,
-                            contentDescription = "Take Photo",
-                            tint = NeonGreenAccent,
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
+                    Text(
+                        text = "Ready",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = Color(0xFF22C55E)
+                    )
                 }
             }
         }
@@ -926,6 +902,7 @@ private fun StudioToolCardDetailed(
         colors = CardDefaults.cardColors(containerColor = DarkGraphiteCard),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = modifier
+            .heightIn(min = 68.dp)
             .border(1.dp, DarkGraphiteBorder, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
@@ -933,8 +910,8 @@ private fun StudioToolCardDetailed(
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 13.dp),
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -962,13 +939,15 @@ private fun StudioToolCardDetailed(
                     ),
                     color = TextWhite,
                     maxLines = 1,
-                    softWrap = false
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = description,
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                     color = TextMuted,
-                    maxLines = 2,
+                    maxLines = 1,
+                    softWrap = false,
                     overflow = TextOverflow.Ellipsis
                 )
             }

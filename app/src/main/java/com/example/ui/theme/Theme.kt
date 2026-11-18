@@ -14,7 +14,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 val LocalCompleteUiTheme = staticCompositionLocalOf {
-    AppThemeCatalog.allThemes.first()
+    AppThemeCatalog.defaultDarkTheme
 }
 
 @Composable
@@ -107,7 +107,7 @@ fun CompleteUiThemeSpec.toMaterialColorScheme(): ColorScheme {
 
 @Composable
 fun SimpleGalleryTheme(
-    themeSpec: CompleteUiThemeSpec = AppThemeCatalog.allThemes.first(),
+    themeSpec: CompleteUiThemeSpec = AppThemeCatalog.defaultDarkTheme,
     content: @Composable () -> Unit
 ) {
     val animatedThemeSpec = rememberAnimatedThemeSpec(themeSpec)

@@ -50,3 +50,17 @@ val OnForestContainer = Color(0xFF002117)
 val EspressoTextPrimary = Color(0xFF1F1A16)
 val EspressoTextSecondary = Color(0xFF574E46)
 val ArchivalOutline = Color(0xFF8A7E74)
+
+// Darkroom & Color Interactive Editing Canvas Palette
+val DarkroomCanvasBackground = Color(0xFF0E0E10)
+val DarkroomCardSurface = Color(0xFF18181C)
+val DarkroomControlSurface = Color(0xFF202026)
+val DarkroomSubtleBorder = Color(0xFF252529)
+val DarkroomCoralAccent = Color(0xFFE57A5C)
+val DarkroomOnCoral = Color(0xFFFFFFFF)
+val DarkroomTextPrimary = Color(0xFFF5F5F7)
+val DarkroomTextSecondary = Color(0xFF9A9AA4)
+val DarkroomReadyGreen = Color(0xFF34D399)
+val DarkroomTrackInactive = Color(0xFF2E2E36)
+val DarkroomOverlayScrim = Color(0xCC0E0E10)
+
