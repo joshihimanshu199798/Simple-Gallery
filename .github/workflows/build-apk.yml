@@ -7,6 +7,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     runs-on: ubuntu-latest
@@ -61,9 +64,49 @@ jobs:
             --stacktrace \
             -Dorg.gradle.jvmargs="-Xmx3584m -XX:MaxMetaspaceSize=896m -XX:+UseG1GC -Dfile.encoding=UTF-8"
 
+      - name: Verify APK signature and prepare installable file
+        run: |
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK_PATH"
+          cp "$APK_PATH" SimpleGallery-debug.apk
+          APKSIGNER=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -name apksigner -type f 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --verbose --print-certs SimpleGallery-debug.apk
+          fi
+          ls -lh SimpleGallery-debug.apk
+
+      - name: Publish direct APK to GitHub Releases
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="latest-apk"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          NOTES="Direct installable Android APK (no zip extraction needed). Tap **SimpleGallery-debug.apk** under Assets to download and open directly on Android. Built from commit \`${SHORT_SHA}\`."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" SimpleGallery-debug.apk --clobber
+            gh release edit "$TAG" --title "Simple Gallery Latest APK" --notes "$NOTES"
+          else
+            gh release create "$TAG" SimpleGallery-debug.apk --title "Simple Gallery Latest APK" --notes "$NOTES"
+          fi
+
+      - name: Add direct APK download link to workflow summary
+        if: github.event_name != 'pull_request'
+        run: |
+          {
+            echo "## Download Installable APK"
+            echo ""
+            echo "GitHub Actions artifacts are packaged inside a \`.zip\` file and cannot be opened directly in the GitHub Android app."
+            echo ""
+            echo "Use the direct Release APK below instead (opens Android Package Installer directly):"
+            echo "- [Download SimpleGallery-debug.apk](https://github.com/${{ github.repository }}/releases/download/latest-apk/SimpleGallery-debug.apk)"
+            echo "- [Open Release Page in GitHub](https://github.com/${{ github.repository }}/releases/tag/latest-apk)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: SimpleGallery-debug-apk
+          path: SimpleGallery-debug.apk
+          compression-level: 0
           if-no-files-found: error

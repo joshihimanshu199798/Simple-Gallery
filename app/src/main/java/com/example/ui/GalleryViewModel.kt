@@ -328,8 +328,11 @@ class GalleryViewModel(
         } catch (_: Exception) {
         }
         viewModelScope.launch(Dispatchers.IO) {
-            repository.ensureSeeded()
-            repository.syncDeviceMediaStorePhotos()
+            try {
+                repository.ensureSeeded()
+                repository.syncDeviceMediaStorePhotos()
+            } catch (_: Throwable) {
+            }
         }
     }
 

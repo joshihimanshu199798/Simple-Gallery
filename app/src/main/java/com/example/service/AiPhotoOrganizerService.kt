@@ -58,6 +58,10 @@ fun configureAppCheck(context: Context, intent: Intent?) {
         if (FirebaseApp.getApps(context).isEmpty()) {
             FirebaseApp.initializeApp(context)
         }
+        if (FirebaseApp.getApps(context).isEmpty()) {
+            Log.w(APP_CHECK_TAG, "FirebaseApp unavailable; skipping App Check setup.")
+            return
+        }
 
         if (BuildConfig.DEBUG) {
             // 2. Debug: Read debug token from Intent extra
@@ -104,7 +108,7 @@ fun configureAppCheck(context: Context, intent: Intent?) {
                 Log.e(APP_CHECK_TAG, "recaptcha_site_key string resource not found in package.")
             }
         }
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
         Log.e(APP_CHECK_TAG, "Failed to initialize Firebase App Check", e)
     }
 }
