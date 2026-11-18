@@ -128,6 +128,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
+import com.example.data.DeviceImageRecord
+import com.example.data.MediaStoreImageRepository
 import com.example.data.PhotoEntity
 import com.example.data.PhotoImageProcessor
 import com.example.data.formatBytes
@@ -180,238 +182,51 @@ data class MediaStorePhotoItem(
 }
 
 /**
- * Queries the device's local storage for images using the Android [MediaStore] API
- * ([MediaStore.Images.Media.EXTERNAL_CONTENT_URI]).
+ * Queries the device's local storage for images via [MediaStoreImageRepository].
  */
 suspend fun fetchLocalMediaStoreImages(
     context: Context,
-    fallbackGalleryPhotos: List<PhotoEntity> = emptyList()
+    fallbackGalleryPhotos: List<PhotoEntity> = emptyList(),
+    mediaStoreRepository: MediaStoreImageRepository = MediaStoreImageRepository(context)
 ): List<MediaStorePhotoItem> = withContext(Dispatchers.IO) {
-    val resolver = context.contentResolver
     val prefs = context.getSharedPreferences("simple_gallery_prefs", Context.MODE_PRIVATE)
     val deletedLocalPaths = prefs.getStringSet("deleted_local_photo_paths", emptySet()) ?: emptySet()
 
-    val projection = arrayOf(
-        MediaStore.Images.Media._ID,
-        MediaStore.Images.Media.DISPLAY_NAME,
-        MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
-        MediaStore.Images.Media.DATE_ADDED,
-        MediaStore.Images.Media.DATE_TAKEN,
-        MediaStore.Images.Media.DATE_MODIFIED,
-        MediaStore.Images.Media.SIZE,
-        MediaStore.Images.Media.WIDTH,
-        MediaStore.Images.Media.HEIGHT,
-        MediaStore.Images.Media.MIME_TYPE,
-        MediaStore.Images.Media.DATA
+    val scannedRecords = mediaStoreRepository.scanDeviceImages(
+        includePublicDirectoryFallback = true
     )
 
-    val queryUris = buildList {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            add(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL))
-        }
-        add(MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-    }.distinct()
+    val results = ArrayList<MediaStorePhotoItem>(scannedRecords.size + fallbackGalleryPhotos.size)
+    val seenIds = HashSet<Long>(scannedRecords.size * 2)
+    val seenUris = HashSet<String>(scannedRecords.size * 2)
 
-    val results = mutableListOf<MediaStorePhotoItem>()
-    val seenIds = HashSet<Long>()
-    val seenUris = HashSet<String>()
-
-    for (collectionUri in queryUris) {
-        val cursor = try {
-            resolver.query(
-                collectionUri,
-                projection,
-                null,
-                null,
-                "${MediaStore.Images.Media.DATE_ADDED} DESC"
+    for (record in scannedRecords) {
+        if (!seenIds.add(record.mediaId)) continue
+        seenUris.add(record.displayPath)
+        if (record.rawFilePath.isNotEmpty()) seenUris.add(record.rawFilePath)
+        results.add(
+            MediaStorePhotoItem(
+                id = record.mediaId,
+                contentUri = record.contentUri,
+                displayName = record.displayName,
+                bucketName = record.bucketName,
+                dateAddedMillis = record.dateAddedMillis,
+                dateTakenMillis = record.dateTakenMillis,
+                sizeBytes = record.sizeBytes,
+                width = record.width,
+                height = record.height,
+                mimeType = record.mimeType,
+                rawFilePath = record.rawFilePath
             )
-        } catch (_: Exception) {
-            try {
-                resolver.query(
-                    collectionUri,
-                    arrayOf(
-                        MediaStore.Images.Media._ID,
-                        MediaStore.Images.Media.DISPLAY_NAME,
-                        MediaStore.Images.Media.BUCKET_DISPLAY_NAME,
-                        MediaStore.Images.Media.DATE_ADDED,
-                        MediaStore.Images.Media.DATE_TAKEN,
-                        MediaStore.Images.Media.SIZE,
-                        MediaStore.Images.Media.WIDTH,
-                        MediaStore.Images.Media.HEIGHT,
-                        MediaStore.Images.Media.MIME_TYPE
-                    ),
-                    null,
-                    null,
-                    "${MediaStore.Images.Media.DATE_ADDED} DESC"
-                )
-            } catch (_: Exception) {
-                null
-            }
-        }
-
-        cursor?.use { c ->
-            val idCol = c.getColumnIndex(MediaStore.Images.Media._ID)
-            if (idCol < 0) return@use
-            val nameCol = c.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
-            val bucketCol = c.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
-            val dateAddedCol = c.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
-            val dateTakenCol = c.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
-            val dateModCol = c.getColumnIndex(MediaStore.Images.Media.DATE_MODIFIED)
-            val sizeCol = c.getColumnIndex(MediaStore.Images.Media.SIZE)
-            val widthCol = c.getColumnIndex(MediaStore.Images.Media.WIDTH)
-            val heightCol = c.getColumnIndex(MediaStore.Images.Media.HEIGHT)
-            val mimeCol = c.getColumnIndex(MediaStore.Images.Media.MIME_TYPE)
-            val dataCol = c.getColumnIndex(MediaStore.Images.Media.DATA)
-
-            while (c.moveToNext()) {
-                val mediaId = if (!c.isNull(idCol)) c.getLong(idCol) else continue
-                if (!seenIds.add(mediaId)) continue
-
-                val contentUri = ContentUris.withAppendedId(
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    mediaId
-                )
-                val uriString = contentUri.toString()
-
-                val rawDataPath = if (dataCol >= 0 && !c.isNull(dataCol)) {
-                    c.getString(dataCol).orEmpty()
-                } else {
-                    ""
-                }
-
-                if (uriString in deletedLocalPaths ||
-                    "media_id:$mediaId" in deletedLocalPaths ||
-                    (rawDataPath.isNotEmpty() && rawDataPath in deletedLocalPaths)
-                ) {
-                    continue
-                }
-
-                val displayName = if (nameCol >= 0 && !c.isNull(nameCol)) {
-                    c.getString(nameCol) ?: "IMG_$mediaId.jpg"
-                } else {
-                    rawDataPath.substringAfterLast('/').ifBlank { "IMG_$mediaId.jpg" }
-                }
-
-                if (PhotoImageProcessor.isStarterSamplePath(displayName)) continue
-
-                val bucketName = if (bucketCol >= 0 && !c.isNull(bucketCol)) {
-                    c.getString(bucketCol)?.trim()?.takeIf { it.isNotEmpty() } ?: "Camera Roll"
-                } else {
-                    rawDataPath.substringBeforeLast('/', "")
-                        .substringAfterLast('/')
-                        .takeIf { it.isNotEmpty() } ?: "Camera Roll"
-                }
-
-                val rawAdded = if (dateAddedCol >= 0 && !c.isNull(dateAddedCol)) c.getLong(dateAddedCol) else 0L
-                val rawTaken = if (dateTakenCol >= 0 && !c.isNull(dateTakenCol)) c.getLong(dateTakenCol) else 0L
-                val rawMod = if (dateModCol >= 0 && !c.isNull(dateModCol)) c.getLong(dateModCol) else 0L
-
-                val dateAddedMs = when {
-                    rawAdded > 1_000_000_000_000L -> rawAdded
-                    rawAdded > 0L -> rawAdded * 1000L
-                    else -> System.currentTimeMillis()
-                }
-                val dateTakenMs = when {
-                    rawTaken > 1_000_000_000_000L -> rawTaken
-                    rawTaken > 0L -> rawTaken * 1000L
-                    rawAdded > 0L -> dateAddedMs
-                    rawMod > 1_000_000_000_000L -> rawMod
-                    rawMod > 0L -> rawMod * 1000L
-                    else -> dateAddedMs
-                }
-
-                val sizeBytes = (if (sizeCol >= 0 && !c.isNull(sizeCol)) c.getLong(sizeCol) else 0L)
-                    .takeIf { it > 0L } ?: 250_000L
-                val width = (if (widthCol >= 0 && !c.isNull(widthCol)) c.getInt(widthCol) else 0)
-                    .takeIf { it > 0 } ?: 1080
-                val height = (if (heightCol >= 0 && !c.isNull(heightCol)) c.getInt(heightCol) else 0)
-                    .takeIf { it > 0 } ?: 1080
-                val mimeType = (if (mimeCol >= 0 && !c.isNull(mimeCol)) c.getString(mimeCol) else null)
-                    ?: "image/jpeg"
-
-                seenUris.add(uriString)
-                if (rawDataPath.isNotEmpty()) seenUris.add(rawDataPath)
-
-                results.add(
-                    MediaStorePhotoItem(
-                        id = mediaId,
-                        contentUri = contentUri,
-                        displayName = displayName,
-                        bucketName = bucketName,
-                        dateAddedMillis = dateAddedMs,
-                        dateTakenMillis = dateTakenMs,
-                        sizeBytes = sizeBytes,
-                        width = width,
-                        height = height,
-                        mimeType = mimeType,
-                        rawFilePath = rawDataPath
-                    )
-                )
-            }
-        }
-    }
-
-    // Fallback scan of public media directories (DCIM, Pictures, Downloads, Screenshots)
-    // in case files on the device have not yet been indexed by MediaScanner.
-    val publicDirs = listOfNotNull(
-        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
-        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_SCREENSHOTS)
-        } else null
-    )
-    val validExtensions = setOf("jpg", "jpeg", "png", "webp", "heic", "heif")
-    for (dir in publicDirs) {
-        if (!dir.exists() || !dir.canRead()) continue
-        try {
-            dir.walkTopDown()
-                .maxDepth(3)
-                .filter { file ->
-                    file.isFile &&
-                        file.canRead() &&
-                        file.length() > 0L &&
-                        !file.name.startsWith(".") &&
-                        file.extension.lowercase() in validExtensions &&
-                        !PhotoImageProcessor.isStarterSamplePath(file.name)
-                }
-                .take(150)
-                .forEach { file ->
-                    val absPath = file.absolutePath
-                    val fileUri = Uri.fromFile(file)
-                    if (absPath !in seenUris &&
-                        fileUri.toString() !in seenUris &&
-                        absPath !in deletedLocalPaths
-                    ) {
-                        val syntheticId = absPath.hashCode().toLong() and 0x7FFFFFFFL
-                        if (seenIds.add(syntheticId)) {
-                            seenUris.add(absPath)
-                            val folder = file.parentFile?.name?.takeIf { it.isNotEmpty() } ?: "Device Storage"
-                            results.add(
-                                MediaStorePhotoItem(
-                                    id = syntheticId,
-                                    contentUri = fileUri,
-                                    displayName = file.name,
-                                    bucketName = folder,
-                                    dateAddedMillis = file.lastModified(),
-                                    dateTakenMillis = file.lastModified(),
-                                    sizeBytes = file.length(),
-                                    width = 1080,
-                                    height = 1080,
-                                    mimeType = "image/${file.extension.lowercase()}",
-                                    rawFilePath = absPath
-                                )
-                            )
-                        }
-                    }
-                }
-        } catch (_: Exception) {
-        }
+        )
     }
 
     // Also include any local gallery photos already imported into the app database that aren't duplicated
     for (entity in fallbackGalleryPhotos) {
-        if (entity.filePath !in seenUris && entity.filePath !in deletedLocalPaths) {
+        if (entity.filePath !in seenUris &&
+            entity.filePath !in deletedLocalPaths &&
+            PhotoImageProcessor.isValidMediaFile(entity.mimeType, entity.fileName.ifBlank { entity.filePath })
+        ) {
             seenUris.add(entity.filePath)
             val parsedUri = if (entity.filePath.startsWith("content://") || entity.filePath.startsWith("file://")) {
                 Uri.parse(entity.filePath)
@@ -441,44 +256,31 @@ suspend fun fetchLocalMediaStoreImages(
 }
 
 /**
- * Deletes the specified [MediaStorePhotoItem] entries from local storage / MediaStore.
+ * Deletes the specified [MediaStorePhotoItem] entries from local storage / MediaStore
+ * via [MediaStoreImageRepository].
  */
 suspend fun deleteLocalMediaStoreImages(
     context: Context,
-    items: List<MediaStorePhotoItem>
-): Int = withContext(Dispatchers.IO) {
-    val resolver = context.contentResolver
-    val prefs = context.getSharedPreferences("simple_gallery_prefs", Context.MODE_PRIVATE)
-    val deletedSet = (prefs.getStringSet("deleted_local_photo_paths", emptySet()) ?: emptySet()).toMutableSet()
-    var removedCount = 0
-
-    for (item in items) {
-        val uriStr = item.contentUri.toString()
-        deletedSet.add(uriStr)
-        deletedSet.add("media_id:${item.id}")
-        if (item.rawFilePath.isNotEmpty()) {
-            deletedSet.add(item.rawFilePath)
-        }
-        try {
-            if (uriStr.startsWith("content://")) {
-                resolver.delete(item.contentUri, null, null)
-            }
-        } catch (_: Exception) {
-        }
-        try {
-            if (item.rawFilePath.isNotEmpty() && !item.rawFilePath.startsWith("content://")) {
-                val rawFile = File(item.rawFilePath)
-                if (rawFile.exists()) {
-                    rawFile.delete()
-                }
-            }
-        } catch (_: Exception) {
-        }
-        removedCount++
+    items: List<MediaStorePhotoItem>,
+    mediaStoreRepository: MediaStoreImageRepository = MediaStoreImageRepository(context)
+): Int {
+    val records = items.map { item ->
+        DeviceImageRecord(
+            mediaId = item.id,
+            contentUri = item.contentUri,
+            rawFilePath = item.rawFilePath,
+            displayName = item.displayName,
+            bucketName = item.bucketName,
+            relativePath = "",
+            dateAddedMillis = item.dateAddedMillis,
+            dateTakenMillis = item.dateTakenMillis,
+            sizeBytes = item.sizeBytes,
+            width = item.width,
+            height = item.height,
+            mimeType = item.mimeType
+        )
     }
-
-    prefs.edit().putStringSet("deleted_local_photo_paths", deletedSet).apply()
-    removedCount
+    return mediaStoreRepository.deleteDeviceImages(records)
 }
 
 /**

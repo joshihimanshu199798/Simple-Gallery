@@ -201,6 +201,9 @@ class GalleryViewModel(
     val photoFaceTags: StateFlow<List<PhotoFaceTagEntity>> = repository.faceTagsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val deviceImagePaths: StateFlow<List<String>> = repository.deviceImagePathsFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val allVisiblePhotos: StateFlow<List<PhotoEntity>> = repository.visiblePhotosFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 

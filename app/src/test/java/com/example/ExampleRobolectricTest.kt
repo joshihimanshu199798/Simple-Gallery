@@ -87,4 +87,20 @@ class ExampleRobolectricTest {
         assertFalse(videoPhoto.matchesCategory("Screenshots"))
         assertFalse(videoPhoto.matchesCategory("Receipts"))
     }
+
+    @Test
+    fun `verify MediaStoreImageRepository timestamp normalization and media file filtering`() {
+        val secTs = 1_760_551_200L
+        assertEquals(
+            1_760_551_200_000L,
+            com.example.data.MediaStoreImageRepository.normalizeTimestampMillis(secTs)
+        )
+        assertEquals(
+            1_760_551_200_000L,
+            com.example.data.MediaStoreImageRepository.normalizeTimestampMillis(1_760_551_200_000L)
+        )
+        assertTrue(com.example.data.PhotoImageProcessor.isValidMediaFile("image/jpeg", "IMG_001.jpg"))
+        assertFalse(com.example.data.PhotoImageProcessor.isValidMediaFile("application/zip", "backup.zip"))
+        assertFalse(com.example.data.PhotoImageProcessor.isValidMediaFile("application/vnd.android.package-archive", "app.apk"))
+    }
 }
