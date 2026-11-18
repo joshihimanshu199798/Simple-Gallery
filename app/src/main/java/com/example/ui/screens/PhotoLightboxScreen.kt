@@ -2841,6 +2841,123 @@ fun ExifMetadataBottomSheet(
                 }
             }
 
+            // 2b. File & Storage Details Card (moved out of cluttered grid thumbnails)
+            Text(
+                text = "FILE & STORAGE DETAILS",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 0.7.sp
+                ),
+                color = activeTheme.primaryAccent
+            )
+
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = activeTheme.surfaceVariant.copy(alpha = 0.55f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, activeTheme.borderStroke, RoundedCornerShape(16.dp))
+                    .testTag("exif_file_storage_details_card")
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "File Name",
+                            tint = activeTheme.primaryAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "FILE NAME",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp
+                                ),
+                                color = activeTheme.textSecondary
+                            )
+                            Text(
+                                text = photo.fileName.ifBlank { photo.title },
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = activeTheme.textPrimary
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = activeTheme.borderStroke.copy(alpha = 0.5f))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CreateNewFolder,
+                            contentDescription = "Folder",
+                            tint = activeTheme.primaryAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "FOLDER / ALBUM",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp
+                                ),
+                                color = activeTheme.textSecondary
+                            )
+                            Text(
+                                text = photo.albumName.ifBlank { "Camera Roll" },
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = activeTheme.textPrimary
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = activeTheme.borderStroke.copy(alpha = 0.5f))
+
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = "Storage Path",
+                            tint = activeTheme.primaryAccent,
+                            modifier = Modifier
+                                .padding(top = 2.dp)
+                                .size(16.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "STORAGE PATH",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp
+                                ),
+                                color = activeTheme.textSecondary
+                            )
+                            Text(
+                                text = photo.filePath,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = activeTheme.textPrimary
+                            )
+                        }
+                    }
+                }
+            }
+
             // 3. Primary Camera & Exposure Triangle Grid
             Text(
                 text = "CAMERA & EXPOSURE SETTINGS",

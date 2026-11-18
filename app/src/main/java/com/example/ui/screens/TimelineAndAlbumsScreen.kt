@@ -28,13 +28,16 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -58,8 +61,10 @@ import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -91,10 +96,12 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -216,6 +223,9 @@ fun TimelineScreen(
     onMoveToVault: (PhotoEntity) -> Unit = {},
     onMoveToTrash: (PhotoEntity) -> Unit = {},
     onFavoriteDateGroup: (List<PhotoEntity>, String) -> Unit = { _, _ -> },
+    onToggleSelectDateGroup: (List<PhotoEntity>, String) -> Unit = onFavoriteDateGroup,
+    onToggleHideScreenshots: () -> Unit = {},
+    onToggleGroupByDate: () -> Unit = {},
     onOpenWatermarkStudio: () -> Unit = {},
     onOpenCreateAlbum: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
@@ -245,13 +255,18 @@ fun TimelineScreen(
         BackHandler { onClearAlbumFilter() }
     }
 
+    val timelineContext = LocalContext.current
+    val timelinePrefs = remember(timelineContext) {
+        timelineContext.getSharedPreferences("simple_gallery_prefs", android.content.Context.MODE_PRIVATE)
+    }
     var sortMenuExpanded by remember { mutableStateOf(false) }
     var homeMoreMenuExpanded by remember { mutableStateOf(false) }
     var homeSortSubMenuExpanded by remember { mutableStateOf(false) }
-    // Retractable Grid Pod: collapsed by default so photos get maximum screen space
-    var showGridStyleBar by remember { mutableStateOf(false) }
-    // Group Home tab photos by Today, Yesterday, This Week, etc. by default
-    var groupByRelativeDate by remember { mutableStateOf(true) }
+    // Retractable Grid Pod: remembers user preference across app reloads
+    var showGridStyleBar by remember {
+        mutableStateOf(timelinePrefs.getBoolean("preferred_grid_bar_expanded", false))
+    }
+    val groupByRelativeDate = filterState.groupByRelativeDate
     // Toggleable direct MediaStore PhotoGalleryScreen view
     var showMediaStorePhotoGallery by remember { mutableStateOf(false) }
 
@@ -289,19 +304,17 @@ fun TimelineScreen(
         }
     }
 
-    val gridColumns = filterState.gridDensity.columns.coerceIn(1, 4)
+    val gridColumns = filterState.gridDensity.columns.coerceIn(1, 5)
 
-    // Curated smart photo categories in Warm Editorial Terracotta / Amber / Sage tones
+    // Smart Filter Pills below the Search Bar: All Photos, Camera, Favorites, Screenshots, Videos (+ Edited)
     val smartCategorySpecs = remember {
         listOf(
-            SmartPhotoCategorySpec("All", "All Photos", "Complete Archive", Color(0xFFC84B28)),
-            SmartPhotoCategorySpec("Favorites", "Favorites", "Hearted Prints", Color(0xFFC84B28)),
+            SmartPhotoCategorySpec("All", "All Photos", "Complete Archive", Color(0xFFE06D53)),
+            SmartPhotoCategorySpec("Camera", "Camera", "Camera Roll", Color(0xFFE06D53)),
+            SmartPhotoCategorySpec("Favorites", "Favorites", "Hearted Prints", Color(0xFFE06D53)),
             SmartPhotoCategorySpec("Screenshots", "Screenshots", "Screen Captures", Color(0xFFD9822B)),
             SmartPhotoCategorySpec("Videos", "Videos", "Motion Clips", Color(0xFF4A7C59)),
-            SmartPhotoCategorySpec("Receipts", "Receipts", "Bills & Passes", Color(0xFF8C6239)),
-            SmartPhotoCategorySpec("Nature", "Nature", "Landscapes & Flora", Color(0xFF4A7C59)),
-            SmartPhotoCategorySpec("Travel", "Travel", "Journeys & Horizons", Color(0xFFD9822B)),
-            SmartPhotoCategorySpec("Edited", "Edited", "Darkroom & Cropped", Color(0xFFC84B28))
+            SmartPhotoCategorySpec("Edited", "Edited", "Darkroom & Cropped", Color(0xFFE06D53))
         )
     }
 
@@ -381,20 +394,20 @@ fun TimelineScreen(
                     )
                     .testTag("timeline_photo_grid"),
                 contentPadding = PaddingValues(
-                    start = 8.dp,
-                    end = 8.dp,
+                    start = if (gridColumns >= 4) 4.dp else 8.dp,
+                    end = if (gridColumns >= 4) 4.dp else 8.dp,
                     top = 6.dp,
                     bottom = 112.dp
                 ),
-                horizontalArrangement = Arrangement.spacedBy(if (gridColumns >= 3) 6.dp else 8.dp),
-                verticalArrangement = Arrangement.spacedBy(if (gridColumns >= 3) 6.dp else 8.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (gridColumns >= 4) 3.dp else if (gridColumns == 3) 4.dp else 8.dp),
+                verticalArrangement = Arrangement.spacedBy(if (gridColumns >= 4) 3.dp else if (gridColumns == 3) 4.dp else 8.dp)
             ) {
-            // 1. Standardized Photos Header Bar + Search Input + Clean Light-Purple Category Chips
+            // 1. Standardized Photos Header Bar + Search Input + Smart Filter Pills
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
+                        .padding(horizontal = if (gridColumns >= 4) 8.dp else 4.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // Standardized Top App Bar with Headline "Photos" & Consolidated ••• More Options Menu
@@ -403,12 +416,20 @@ fun TimelineScreen(
                         albumName = filterState.selectedAlbumName,
                         activeTheme = activeTheme,
                         gridColumns = gridColumns,
+                        currentGridDensity = filterState.gridDensity,
+                        onSelectGridDensity = onSelectGridDensity,
                         showGridStyleBar = showGridStyleBar,
+                        hideScreenshotsFromMainFeed = filterState.hideScreenshotsFromMainFeed,
+                        onToggleHideScreenshots = onToggleHideScreenshots,
                         isFavoritesFilterActive = filterState.selectedTag.equals("Favorites", ignoreCase = true),
                         currentSortOption = filterState.sortOption,
                         onSelectSort = onSelectSort,
                         onToggleSearchBar = onToggleSearchBar,
-                        onToggleGridStyleBar = { showGridStyleBar = !showGridStyleBar },
+                        onToggleGridStyleBar = {
+                            val next = !showGridStyleBar
+                            showGridStyleBar = next
+                            timelinePrefs.edit().putBoolean("preferred_grid_bar_expanded", next).commit()
+                        },
                         onToggleFavoritesFilter = {
                             if (filterState.selectedTag.equals("Favorites", ignoreCase = true)) {
                                 onSelectTag("All")
@@ -426,7 +447,7 @@ fun TimelineScreen(
                         onStartSlideshow = onStartSlideshow,
                         onStartAiOrganize = onStartAiOrganize,
                         onSyncDeviceGallery = onSyncDeviceGallery,
-                        onToggleGroupByDate = { groupByRelativeDate = !groupByRelativeDate },
+                        onToggleGroupByDate = onToggleGroupByDate,
                         groupByRelativeDate = groupByRelativeDate,
                         onToggleSelectionMode = onToggleSelectionMode,
                         isSelectionMode = isSelectionMode || selectedPhotoIds.isNotEmpty(),
@@ -842,12 +863,18 @@ fun TimelineScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                // 1× / 2× / 3× / 4× Column Pills
+                                // 1× / 2× / 3× / 4× / 5× Column Pills
                                 Row(
                                     modifier = Modifier.weight(1f),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                                 ) {
-                                    GridDensity.entries.forEach { density ->
+                                    listOf(
+                                        GridDensity.THREE,
+                                        GridDensity.FOUR,
+                                        GridDensity.FIVE,
+                                        GridDensity.TWO,
+                                        GridDensity.LIST
+                                    ).forEach { density ->
                                         val isSelected = filterState.gridDensity == density
                                         Surface(
                                             shape = RoundedCornerShape(12.dp),
@@ -866,22 +893,7 @@ fun TimelineScreen(
                                                 }
                                                 .testTag("grid_density_chip_${density.columns}")
                                         ) {
-                                            Row(
-                                                horizontalArrangement = Arrangement.Center,
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.padding(horizontal = 4.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.GridView,
-                                                    contentDescription = null,
-                                                    tint = if (isSelected) {
-                                                        activeTheme.onPrimaryAccent
-                                                    } else {
-                                                        activeTheme.primaryAccent
-                                                    },
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
+                                            Box(contentAlignment = Alignment.Center) {
                                                 Text(
                                                     text = "${density.columns}×",
                                                     style = MaterialTheme.typography.labelMedium.copy(
@@ -950,7 +962,10 @@ fun TimelineScreen(
                                     modifier = Modifier
                                         .size(38.dp)
                                         .clip(CircleShape)
-                                        .clickable { showGridStyleBar = false }
+                                        .clickable {
+                                            showGridStyleBar = false
+                                            timelinePrefs.edit().putBoolean("preferred_grid_bar_expanded", false).commit()
+                                        }
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
@@ -1258,9 +1273,10 @@ fun TimelineScreen(
                             dateGroupTitle = dateGroupTitle,
                             subtitleDate = groupPhotos.firstOrNull()?.shortDateText.orEmpty(),
                             groupPhotos = groupPhotos,
+                            selectedPhotoIds = selectedPhotoIds,
                             activeTheme = activeTheme,
-                            onFavoriteAllInGroup = {
-                                onFavoriteDateGroup(groupPhotos, dateGroupTitle)
+                            onToggleSelectGroup = {
+                                onToggleSelectDateGroup(groupPhotos, dateGroupTitle)
                             }
                         )
                     }
@@ -1275,6 +1291,7 @@ fun TimelineScreen(
                         ThemeAdaptiveShowcaseCard(
                             photo = photo,
                             activeTheme = activeTheme,
+                            gridColumns = gridColumns,
                             isHeroFullSpan = gridColumns == 1,
                             isCompactGrid = gridColumns >= 3,
                             isSquareGrid = filterState.isSquareGrid,
@@ -1305,6 +1322,7 @@ fun TimelineScreen(
                     ThemeAdaptiveShowcaseCard(
                         photo = photo,
                         activeTheme = activeTheme,
+                        gridColumns = gridColumns,
                         isHeroFullSpan = gridColumns == 1,
                         isCompactGrid = gridColumns >= 3,
                         isSquareGrid = filterState.isSquareGrid,
@@ -1327,12 +1345,22 @@ fun TimelineScreen(
             }
         }
 
-        // Interactive Right-Edge Draggable Timeline Date Scrubber Pill
+        // Interactive Right-Edge Draggable Timeline Date Scrubber with Floating Date Tooltip Badge ("Nov 2026")
         var isDraggingScrubber by remember { mutableStateOf(false) }
-        var scrubberFraction by remember { mutableStateOf(0f) }
+        var scrubberFraction by remember { mutableFloatStateOf(0f) }
         val firstVisibleIndex by remember {
             derivedStateOf { timelineGridState.firstVisibleItemIndex }
         }
+        val totalGridItems by remember {
+            derivedStateOf { timelineGridState.layoutInfo.totalItemsCount.coerceAtLeast(1) }
+        }
+        val scrollProgressFraction by remember {
+            derivedStateOf {
+                val maxIdx = (totalGridItems - timelineGridState.layoutInfo.visibleItemsInfo.size).coerceAtLeast(1)
+                (firstVisibleIndex.toFloat() / maxIdx.toFloat()).coerceIn(0f, 1f)
+            }
+        }
+        val displayFraction = if (isDraggingScrubber) scrubberFraction else scrollProgressFraction
 
         val showScrubber = photos.size >= 4 || firstVisibleIndex > 1
         AnimatedVisibility(
@@ -1341,94 +1369,117 @@ fun TimelineScreen(
             exit = fadeOut(tween(160)) + slideOutHorizontally(targetOffsetX = { it }),
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .padding(end = 8.dp, bottom = 32.dp)
+                .fillMaxHeight()
+                .padding(top = 88.dp, bottom = 104.dp, end = 6.dp)
         ) {
-            val activeIdx = if (isDraggingScrubber) {
-                (scrubberFraction * (photos.size - 1)).roundToInt().coerceIn(0, (photos.size - 1).coerceAtLeast(0))
-            } else {
-                (firstVisibleIndex - 1).coerceIn(0, (photos.size - 1).coerceAtLeast(0))
-            }
-            val currentVisibleDate = photos.getOrNull(activeIdx)?.shortDateText?.ifBlank { "Top" } ?: "Top"
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxHeight(),
+                contentAlignment = Alignment.TopEnd
             ) {
-                AnimatedVisibility(visible = isDraggingScrubber || firstVisibleIndex > 2) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = activeTheme.primaryAccent,
-                        shadowElevation = 6.dp,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable {
-                                timelineScope.launch {
-                                    timelineGridState.animateScrollToItem(0)
-                                }
-                            }
-                            .testTag("timeline_fast_scroll_top_pill")
+                val density = LocalDensity.current
+                val thumbHeightDp = 50.dp
+                val maxTravelPx = with(density) {
+                    (maxHeight - thumbHeightDp).coerceAtLeast(1.dp).toPx()
+                }
+                val thumbOffsetY = (displayFraction * maxTravelPx).roundToInt()
+
+                val activeIdx = if (isDraggingScrubber) {
+                    (scrubberFraction * (photos.size - 1)).roundToInt().coerceIn(0, (photos.size - 1).coerceAtLeast(0))
+                } else {
+                    (displayFraction * (photos.size - 1)).roundToInt().coerceIn(0, (photos.size - 1).coerceAtLeast(0))
+                }
+                val activePhoto = photos.getOrNull(activeIdx)
+                val tooltipDateText = activePhoto?.shortMonthYearText?.ifBlank { activePhoto.shortDateText }
+                    ?: "Top"
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.offset { IntOffset(0, thumbOffsetY) }
+                ) {
+                    // Floating Date Tooltip Badge ("Nov 2026") next to the right-edge thumb while dragging
+                    AnimatedVisibility(
+                        visible = isDraggingScrubber,
+                        enter = fadeIn(tween(120)) + scaleIn(initialScale = 0.86f),
+                        exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.86f)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = activeTheme.primaryAccent,
+                            shadowElevation = 8.dp,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                Color.White.copy(alpha = 0.28f)
+                            ),
+                            modifier = Modifier.testTag("timeline_fast_scroll_top_pill")
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowUp,
-                                contentDescription = "Scroll to top",
-                                tint = activeTheme.onPrimaryAccent,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = currentVisibleDate,
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                                color = activeTheme.onPrimaryAccent
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = tooltipDateText,
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.sp
+                                    ),
+                                    color = activeTheme.onPrimaryAccent
+                                )
+                            }
                         }
                     }
-                }
 
-                // Right-edge draggable thumb handle
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = if (isDraggingScrubber) activeTheme.primaryAccent else activeTheme.surface.copy(alpha = 0.92f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, activeTheme.borderStroke),
-                    shadowElevation = 4.dp,
-                    modifier = Modifier
-                        .width(24.dp)
-                        .height(52.dp)
-                        .pointerInput(photos.size) {
-                            detectVerticalDragGestures(
-                                onDragStart = { isDraggingScrubber = true },
-                                onDragEnd = { isDraggingScrubber = false },
-                                onDragCancel = { isDraggingScrubber = false },
-                                onVerticalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    val next = (scrubberFraction + (dragAmount / 480f)).coerceIn(0f, 1f)
-                                    scrubberFraction = next
-                                    val targetItem = ((next * (photos.size)).roundToInt()).coerceIn(0, photos.size)
-                                    timelineScope.launch {
-                                        timelineGridState.scrollToItem(targetItem)
+                    // Right-edge draggable thumb handle
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = if (isDraggingScrubber) activeTheme.primaryAccent else activeTheme.surface.copy(alpha = 0.90f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isDraggingScrubber) Color.White.copy(alpha = 0.4f) else activeTheme.borderStroke
+                        ),
+                        shadowElevation = if (isDraggingScrubber) 8.dp else 4.dp,
+                        modifier = Modifier
+                            .width(24.dp)
+                            .height(thumbHeightDp)
+                            .pointerInput(photos.size, maxTravelPx) {
+                                detectVerticalDragGestures(
+                                    onDragStart = {
+                                        scrubberFraction = scrollProgressFraction
+                                        isDraggingScrubber = true
+                                    },
+                                    onDragEnd = { isDraggingScrubber = false },
+                                    onDragCancel = { isDraggingScrubber = false },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        change.consume()
+                                        val next = (scrubberFraction + (dragAmount / maxTravelPx)).coerceIn(0f, 1f)
+                                        scrubberFraction = next
+                                        val targetGridIdx = (next * (totalGridItems - 1).coerceAtLeast(0))
+                                            .roundToInt()
+                                            .coerceIn(0, (totalGridItems - 1).coerceAtLeast(0))
+                                        timelineScope.launch {
+                                            timelineGridState.scrollToItem(targetGridIdx)
+                                        }
                                     }
-                                }
-                            )
-                        }
-                        .testTag("timeline_edge_scrubber_pill")
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                                )
+                            }
+                            .testTag("timeline_edge_scrubber_pill")
                     ) {
-                        repeat(3) {
-                            Box(
-                                modifier = Modifier
-                                    .padding(vertical = 1.5.dp)
-                                    .width(10.dp)
-                                    .height(2.dp)
-                                    .clip(RoundedCornerShape(50))
-                                    .background(if (isDraggingScrubber) Color.White else activeTheme.primaryAccent)
-                            )
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            repeat(3) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(vertical = 1.5.dp)
+                                        .width(10.dp)
+                                        .height(2.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(if (isDraggingScrubber) Color.White else activeTheme.primaryAccent)
+                                )
+                            }
                         }
                     }
                 }
@@ -1576,7 +1627,11 @@ private fun HomeTopHeaderBar(
     albumName: String?,
     activeTheme: CompleteUiThemeSpec,
     gridColumns: Int,
+    currentGridDensity: GridDensity,
+    onSelectGridDensity: (GridDensity) -> Unit,
     showGridStyleBar: Boolean,
+    hideScreenshotsFromMainFeed: Boolean,
+    onToggleHideScreenshots: () -> Unit,
     isFavoritesFilterActive: Boolean,
     currentSortOption: SortOption,
     onSelectSort: (SortOption) -> Unit,
@@ -1794,27 +1849,120 @@ private fun HomeTopHeaderBar(
                         }
                     }
 
-                    // 2. Grid Layout Toggle
-                    DropdownMenuItem(
-                        text = {
+                    // 2. Quick Grid Column Switcher (3× / 4× / 5×) + Full Grid Controls Bar
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
                             Text(
-                                if (showGridStyleBar) "Hide Grid Layout Controls" else "Grid Layout (${gridColumns}× Columns)",
-                                fontWeight = FontWeight.SemiBold,
+                                text = "Grid Columns",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = activeTheme.textPrimary
                             )
+                            Text(
+                                text = if (showGridStyleBar) "Hide bar" else "More",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = activeTheme.primaryAccent,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        topMenuExpanded = false
+                                        onToggleGridStyleBar()
+                                    }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .testTag("toggle_grid_style_bar_button")
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(
+                                GridDensity.THREE,
+                                GridDensity.FOUR,
+                                GridDensity.FIVE
+                            ).forEach { density ->
+                                val isCurrentCols = currentGridDensity == density
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isCurrentCols) activeTheme.primaryAccent else activeTheme.surfaceVariant,
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (isCurrentCols) activeTheme.primaryAccent else activeTheme.borderStroke
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(34.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            onSelectGridDensity(density)
+                                            topMenuExpanded = false
+                                        }
+                                        .testTag("menu_grid_cols_${density.columns}")
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "${density.columns}×",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.ExtraBold),
+                                            color = if (isCurrentCols) activeTheme.onPrimaryAccent else activeTheme.textPrimary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2b. Hide Screenshots from Main Feed Toggle
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(
+                                    text = "Hide Screenshots from Main Feed",
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = activeTheme.textPrimary
+                                )
+                                Text(
+                                    text = if (hideScreenshotsFromMainFeed) "Hidden from All Photos" else "Visible in Main Feed",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = activeTheme.textSecondary
+                                )
+                            }
                         },
                         leadingIcon = {
                             Icon(
-                                Icons.Default.GridView,
+                                Icons.Default.Tune,
                                 contentDescription = null,
-                                tint = activeTheme.primaryAccent
+                                tint = if (hideScreenshotsFromMainFeed) activeTheme.primaryAccent else activeTheme.textSecondary
                             )
                         },
-                        onClick = {
-                            topMenuExpanded = false
-                            onToggleGridStyleBar()
+                        trailingIcon = {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = if (hideScreenshotsFromMainFeed) activeTheme.primaryAccent else activeTheme.surfaceVariant
+                            ) {
+                                Text(
+                                    text = if (hideScreenshotsFromMainFeed) "ON" else "OFF",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 10.sp
+                                    ),
+                                    color = if (hideScreenshotsFromMainFeed) activeTheme.onPrimaryAccent else activeTheme.textSecondary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
                         },
-                        modifier = Modifier.testTag("toggle_grid_style_bar_button")
+                        onClick = {
+                            onToggleHideScreenshots()
+                            topMenuExpanded = false
+                        },
+                        modifier = Modifier.testTag("menu_item_hide_screenshots")
                     )
 
                     // 3. Folder Management (MediaStore Folders)
@@ -2173,16 +2321,17 @@ private fun RelativeDateSectionHeader(
     dateGroupTitle: String,
     subtitleDate: String,
     groupPhotos: List<PhotoEntity>,
+    selectedPhotoIds: Set<Long>,
     activeTheme: CompleteUiThemeSpec,
-    onFavoriteAllInGroup: () -> Unit
+    onToggleSelectGroup: () -> Unit
 ) {
-    val allFavorited = remember(groupPhotos) {
-        groupPhotos.isNotEmpty() && groupPhotos.all { it.isFavorite }
+    val allSelectedInGroup = remember(groupPhotos, selectedPhotoIds) {
+        groupPhotos.isNotEmpty() && groupPhotos.all { it.id in selectedPhotoIds }
     }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 4.dp, start = 2.dp, end = 2.dp)
+            .padding(top = 8.dp, bottom = 4.dp, start = 4.dp, end = 4.dp)
             .testTag("date_group_header_${dateGroupTitle.lowercase().replace(" ", "_")}"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -2191,7 +2340,7 @@ private fun RelativeDateSectionHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Futuristic Accent Dot
+            // Accent Dot
             Box(
                 modifier = Modifier
                     .size(9.dp)
@@ -2239,19 +2388,22 @@ private fun RelativeDateSectionHeader(
             }
         }
 
-        // Quick Favorite All in Date Section Pill
+        // Clean Date-Group Multi-Select Toggle ("Select" / "Selected")
         Surface(
             shape = RoundedCornerShape(50),
-            color = if (allFavorited) {
-                Color(0xFFFF4D6D).copy(alpha = 0.18f)
+            color = if (allSelectedInGroup) {
+                activeTheme.primaryAccent.copy(alpha = 0.22f)
             } else {
                 activeTheme.surfaceVariant.copy(alpha = 0.65f)
             },
+            border = if (allSelectedInGroup) {
+                androidx.compose.foundation.BorderStroke(1.dp, activeTheme.primaryAccent)
+            } else null,
             modifier = Modifier
                 .height(32.dp)
                 .clip(RoundedCornerShape(50))
-                .clickable { onFavoriteAllInGroup() }
-                .testTag("fav_group_${dateGroupTitle.lowercase().replace(" ", "_")}")
+                .clickable { onToggleSelectGroup() }
+                .testTag("select_group_${dateGroupTitle.lowercase().replace(" ", "_")}")
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 10.dp),
@@ -2259,18 +2411,18 @@ private fun RelativeDateSectionHeader(
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 Icon(
-                    imageVector = if (allFavorited) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = "Favorite $dateGroupTitle",
-                    tint = if (allFavorited) Color(0xFFFF4D6D) else activeTheme.textSecondary,
-                    modifier = Modifier.size(16.dp)
+                    imageVector = if (allSelectedInGroup) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    contentDescription = "Select all in $dateGroupTitle",
+                    tint = if (allSelectedInGroup) activeTheme.primaryAccent else activeTheme.textSecondary,
+                    modifier = Modifier.size(15.dp)
                 )
                 Text(
-                    text = if (allFavorited) "Favorited" else "Fav All",
+                    text = if (allSelectedInGroup) "Selected" else "Select",
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     ),
-                    color = if (allFavorited) Color(0xFFFF4D6D) else activeTheme.textSecondary
+                    color = if (allSelectedInGroup) activeTheme.primaryAccent else activeTheme.textSecondary
                 )
             }
         }
@@ -2608,6 +2760,7 @@ private fun ThemeCategoryFilterPill(
 private fun ThemeAdaptiveShowcaseCard(
     photo: PhotoEntity,
     activeTheme: CompleteUiThemeSpec,
+    gridColumns: Int = 3,
     isHeroFullSpan: Boolean,
     isCompactGrid: Boolean = false,
     isSquareGrid: Boolean = false,
@@ -2626,32 +2779,62 @@ private fun ThemeAdaptiveShowcaseCard(
     onMoveToTrash: () -> Unit = {},
     onRequestDeleteFromStorage: () -> Unit = {}
 ) {
-    val cornerRadius = if (isSelected) 20.dp else if (isCompactGrid) 12.dp else 16.dp
-    val cardScale = if (isSelected) 0.95f else 1f
-    val borderWidth = if (isSelected) 2.5.dp else 0.5.dp
-    val borderColor = if (isSelected) activeTheme.primaryAccent else activeTheme.borderStroke
+    val cornerRadius = when {
+        isSelected -> 16.dp
+        gridColumns >= 5 -> 6.dp
+        gridColumns == 4 -> 8.dp
+        isCompactGrid -> 10.dp
+        else -> 14.dp
+    }
+    val cardScale = if (isSelected) 0.94f else 1f
+    val borderWidth = if (isSelected) 2.5.dp else 0.dp
+    val borderColor = if (isSelected) activeTheme.primaryAccent else Color.Transparent
     val cardAspectRatio = when {
-        isCompactGrid || isSquareGrid -> 1f
-        isHeroFullSpan -> 1.56f
-        else -> 1.04f
+        isSquareGrid -> 1f
+        isHeroFullSpan -> {
+            if (photo.width > 0 && photo.height > 0) {
+                (photo.width.toFloat() / photo.height.toFloat()).coerceIn(0.72f, 1.85f)
+            } else {
+                1.56f
+            }
+        }
+        gridColumns <= 2 -> 0.85f
+        else -> 0.82f
     }
 
     val context = LocalContext.current
-    val thumbnailRequest = remember(photo.id, photo.filePath, photo.sizeBytes) {
-        PhotoImageProcessor.buildThumbnailRequest(context, photo.filePath)
+    val thumbSizePx = remember(gridColumns) {
+        when {
+            gridColumns >= 5 -> 220
+            gridColumns == 4 -> 260
+            else -> 360
+        }
+    }
+    val thumbnailRequest = remember(photo.id, photo.filePath, photo.sizeBytes, thumbSizePx) {
+        PhotoImageProcessor.buildThumbnailRequest(context, photo.filePath, thumbSizePx, thumbSizePx)
+    }
+    var thumbnailDecodeFailed by remember(photo.id, photo.filePath) {
+        mutableStateOf(false)
     }
 
     Card(
         shape = RoundedCornerShape(cornerRadius),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isCompactGrid) 1.dp else 2.dp),
+        colors = CardDefaults.cardColors(containerColor = activeTheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isCompactGrid) 0.dp else 2.dp),
         modifier = Modifier
             .fillMaxWidth()
             .scale(cardScale)
             .aspectRatio(cardAspectRatio)
-            .border(
-                width = borderWidth,
-                color = borderColor,
-                shape = RoundedCornerShape(cornerRadius)
+            .then(
+                if (borderWidth > 0.dp) {
+                    Modifier.border(
+                        width = borderWidth,
+                        color = borderColor,
+                        shape = RoundedCornerShape(cornerRadius)
+                    )
+                } else {
+                    Modifier
+                }
             )
             .clip(RoundedCornerShape(cornerRadius))
             .combinedClickable(
@@ -2667,41 +2850,109 @@ private fun ThemeAdaptiveShowcaseCard(
             .testTag("photo_card_${photo.id}")
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            AsyncImage(
-                model = thumbnailRequest,
-                contentDescription = photo.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (photo.filePath.isNotBlank() && !thumbnailDecodeFailed) {
+                AsyncImage(
+                    model = thumbnailRequest,
+                    contentDescription = photo.title,
+                    contentScale = ContentScale.Crop,
+                    onError = { thumbnailDecodeFailed = true },
+                    onSuccess = { thumbnailDecodeFailed = false },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
 
+            // Clean fallback media placeholder whenever an image fails to decode or path is missing
+            if (photo.filePath.isBlank() || thumbnailDecodeFailed) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(activeTheme.surfaceVariant)
+                        .testTag("fallback_media_icon_${photo.id}"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (photo.isVideo) {
+                                Icons.Default.Movie
+                            } else {
+                                Icons.Default.Image
+                            },
+                            contentDescription = "Media preview unavailable",
+                            tint = activeTheme.textSecondary.copy(alpha = 0.72f),
+                            modifier = Modifier.size(if (gridColumns >= 5) 20.dp else 26.dp)
+                        )
+                        if (gridColumns <= 3) {
+                            Text(
+                                text = if (photo.isVideo) "Video" else "Unavailable",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                color = activeTheme.textSecondary.copy(alpha = 0.65f),
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Subtle Top-Start Video Duration Badge (only for videos)
             if (photo.isVideo) {
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = Color.Black.copy(alpha = 0.72f),
+                    color = Color.Black.copy(alpha = 0.68f),
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(6.dp)
+                        .padding(if (gridColumns >= 5) 4.dp else 6.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        modifier = Modifier.padding(
+                            horizontal = if (gridColumns >= 5) 5.dp else 7.dp,
+                            vertical = if (gridColumns >= 5) 2.dp else 3.dp
+                        ),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
                             contentDescription = "Video",
                             tint = Color.White,
-                            modifier = Modifier.size(12.dp)
+                            modifier = Modifier.size(if (gridColumns >= 5) 10.dp else 12.dp)
                         )
                         Text(
                             text = photo.formattedDuration,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = if (gridColumns >= 5) 8.5.sp else 9.5.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
                             color = Color.White
                         )
                     }
                 }
             }
 
+            // Subtle Bottom-End Favorite Heart Badge (only when favorited)
+            if (photo.isFavorite) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.48f),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(if (gridColumns >= 5) 4.dp else 6.dp)
+                        .size(if (gridColumns >= 5) 20.dp else 24.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = "Favorited",
+                            tint = Color(0xFFFF4D6D),
+                            modifier = Modifier.size(if (gridColumns >= 5) 11.dp else 13.dp)
+                        )
+                    }
+                }
+            }
+
+            // Selection Highlight Overlay
             androidx.compose.animation.AnimatedVisibility(
                 visible = isSelected,
                 enter = fadeIn(tween(160)),
@@ -2715,19 +2966,19 @@ private fun ThemeAdaptiveShowcaseCard(
                 )
             }
 
-            // Clean selection indicator (only shown when selecting or in selection mode)
+            // Clean selection check circle (only shown when selecting or in selection mode)
             if (isSelectionMode || isSelected) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(if (isCompactGrid) 5.dp else 8.dp)
+                        .padding(if (gridColumns >= 5) 4.dp else if (isCompactGrid) 5.dp else 8.dp)
                 ) {
                     val checkColor = if (isSelected) activeTheme.primaryAccent else Color.Black.copy(alpha = 0.65f)
                     Surface(
                         shape = CircleShape,
                         color = checkColor,
                         modifier = Modifier
-                            .size(if (isCompactGrid) 28.dp else 32.dp)
+                            .size(if (gridColumns >= 5) 22.dp else if (isCompactGrid) 26.dp else 30.dp)
                             .border(
                                 width = 1.2.dp,
                                 color = if (isSelected) Color.White else Color.White.copy(alpha = 0.6f),
@@ -2746,96 +2997,9 @@ private fun ThemeAdaptiveShowcaseCard(
                                 },
                                 contentDescription = if (isSelected) "Deselect photo" else "Select photo",
                                 tint = if (isSelected) activeTheme.onPrimaryAccent else Color.White,
-                                modifier = Modifier.size(if (isCompactGrid) 16.dp else 18.dp)
+                                modifier = Modifier.size(if (gridColumns >= 5) 14.dp else if (isCompactGrid) 16.dp else 18.dp)
                             )
                         }
-                    }
-                }
-            }
-
-            if (isCompactGrid) {
-                // Ultra-Compact 3-Col / 4-Col Grid Bottom Micro-Pill
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = activeTheme.captionOverlayBackground,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 6.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = photo.title,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp
-                            ),
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = photo.albumName.take(8),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.SemiBold
-                            ),
-                            color = Color.White.copy(alpha = 0.78f),
-                            maxLines = 1
-                        )
-                    }
-                }
-            } else {
-                // Clean Floating Glass Capsule Overlay at Bottom (No Quick-Launch or EXIF clutter)
-                Surface(
-                    shape = RoundedCornerShape(if (isHeroFullSpan) 14.dp else 11.dp),
-                    color = activeTheme.captionOverlayBackground,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(if (isHeroFullSpan) 8.dp else 6.dp)
-                        .border(
-                            width = 0.5.dp,
-                            color = Color.White.copy(alpha = 0.18f),
-                            shape = RoundedCornerShape(if (isHeroFullSpan) 14.dp else 11.dp)
-                        )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                horizontal = if (isHeroFullSpan) 12.dp else 9.dp,
-                                vertical = if (isHeroFullSpan) 8.dp else 6.dp
-                            ),
-                        verticalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
-                        Text(
-                            text = photo.title,
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = if (isHeroFullSpan) 14.sp else 12.sp
-                            ),
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "${photo.albumName} · ${photo.shortDateText}",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontSize = if (isHeroFullSpan) 11.sp else 10.sp
-                            ),
-                            color = Color.White.copy(alpha = 0.80f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
                     }
                 }
             }
@@ -2858,10 +3022,15 @@ fun AlbumsGridScreen(
 ) {
     val activeTheme = LocalCompleteUiTheme.current
     val context = LocalContext.current
+    val albumPrefs = remember(context) {
+        context.getSharedPreferences("simple_gallery_prefs", android.content.Context.MODE_PRIVATE)
+    }
     var pinnedAlbums by remember {
         mutableStateOf(com.example.ui.studio.StudioPreferenceStore.loadPinnedAlbums(context))
     }
-    var isListView by remember { mutableStateOf(false) }
+    var isListView by remember {
+        mutableStateOf(albumPrefs.getBoolean("albums_grid_list_view", false))
+    }
     val orderedAlbums = remember(albums, pinnedAlbums) {
         albums.sortedWith(
             compareByDescending<AlbumSummary> { album ->
@@ -2959,7 +3128,11 @@ fun AlbumsGridScreen(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
-                                .clickable { isListView = !isListView }
+                                .clickable {
+                                    val next = !isListView
+                                    isListView = next
+                                    albumPrefs.edit().putBoolean("albums_grid_list_view", next).commit()
+                                }
                                 .testTag("albums_view_mode_toggle")
                         ) {
                             Box(contentAlignment = Alignment.Center) {

@@ -316,7 +316,7 @@ object AppThemeCatalog {
             backgroundSecondary = Color(0xFF0A0A0C),
             surface = Color(0xFF141312),
             surfaceVariant = Color(0xFF221F1D),
-            primaryAccent = Color(0xFFE06340),
+            primaryAccent = Color(0xFFE06D53),
             onPrimaryAccent = Color(0xFFFFFFFF),
             secondaryAccent = Color(0xFFD9822B),
             onSecondaryAccent = Color(0xFFFFFFFF),
@@ -325,7 +325,7 @@ object AppThemeCatalog {
             textSecondary = Color(0xFFB0A89F),
             borderStroke = Color(0xFF2E2A27),
             topStripBackground = Color(0xFF141312),
-            topStripText = Color(0xFFE06340),
+            topStripText = Color(0xFFE06D53),
             captionOverlayBackground = Color(0xE6050505),
             dockBackground = Color(0xFF141312)
         )

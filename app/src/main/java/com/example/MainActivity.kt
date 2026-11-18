@@ -759,6 +759,9 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
                             onMoveToVault = { viewModel.setVaultLocked(listOf(it.id), true) },
                             onMoveToTrash = { viewModel.moveToTrash(listOf(it.id)) },
                             onFavoriteDateGroup = viewModel::favoriteAllInList,
+                            onToggleSelectDateGroup = viewModel::toggleDateGroupSelection,
+                            onToggleHideScreenshots = viewModel::toggleHideScreenshotsFromMainFeed,
+                            onToggleGroupByDate = viewModel::toggleGroupByRelativeDate,
                             onOpenWatermarkStudio = { viewModel.openWatermarkModal() },
                             onOpenCreateAlbum = { showCreateAlbumDialog = true },
                             onOpenSettings = { showSettingsDialog = true },
@@ -883,6 +886,9 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
                                     onMoveToVault = { viewModel.setVaultLocked(listOf(it.id), true) },
                                     onMoveToTrash = { viewModel.moveToTrash(listOf(it.id)) },
                                     onFavoriteDateGroup = viewModel::favoriteAllInList,
+                                    onToggleSelectDateGroup = viewModel::toggleDateGroupSelection,
+                                    onToggleHideScreenshots = viewModel::toggleHideScreenshotsFromMainFeed,
+                                    onToggleGroupByDate = viewModel::toggleGroupByRelativeDate,
                                     onOpenWatermarkStudio = { viewModel.openWatermarkModal() },
                                     onOpenCreateAlbum = { showCreateAlbumDialog = true },
                                     onOpenSettings = { showSettingsDialog = true },
@@ -1097,7 +1103,7 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
                     SelectedPhotosBottomActionDock(
                         selectedCount = selectedIds.size,
                         activeTheme = activeTheme,
-                        onFavoriteSelected = { viewModel.batchFavoriteSelected(true) },
+                        onFavoriteSelected = { viewModel.toggleBatchFavoriteSelected(selectedPhotosList) },
                         onAiTagSelected = { viewModel.startAiAnalyzePhotosByIds(selectedIds.toList()) },
                         onCollageSelected = { viewModel.openCollageModal() },
                         onCompareSelected = { viewModel.openCompareModal() },
@@ -1114,9 +1120,7 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
                         },
                         onMoveAlbumSelected = { showBatchAlbumDialog = true },
                         onShareSelected = {
-                            selectedPhotosList.firstOrNull()?.let {
-                                shareLocalPhoto(context, it, viewModel::postMessage)
-                            }
+                            shareSelectedPhotos(context, selectedPhotosList, viewModel::postMessage)
                         },
                         onVaultSelected = { viewModel.setVaultLocked(selectedIds.toList(), true) },
                         onTrashSelected = { viewModel.moveToTrash(selectedIds.toList()) },
@@ -1420,9 +1424,15 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        GridDensity.entries.forEach { density ->
+                        listOf(
+                            GridDensity.THREE,
+                            GridDensity.FOUR,
+                            GridDensity.FIVE,
+                            GridDensity.TWO,
+                            GridDensity.LIST
+                        ).forEach { density ->
                             val isSelected = filterState.gridDensity == density
                             Surface(
                                 shape = RoundedCornerShape(50),
@@ -1434,12 +1444,12 @@ fun SimpleGalleryApp(viewModel: GalleryViewModel) {
                             ) {
                                 Box(
                                     contentAlignment = Alignment.Center,
-                                    modifier = Modifier.padding(vertical = 7.dp)
+                                    modifier = Modifier.padding(vertical = 8.dp)
                                 ) {
                                     Text(
-                                        text = "${density.columns} Col",
+                                        text = "${density.columns}×",
                                         style = MaterialTheme.typography.labelMedium.copy(
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
                                         ),
                                         color = if (isSelected) activeTheme.onPrimaryAccent else activeTheme.textPrimary
                                     )
@@ -1666,9 +1676,35 @@ private fun FloatingGalleryBottomDock(
     onSelectTab: (GalleryTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val frostedContainerColor = if (activeTheme.isLight) {
+        activeTheme.dockBackground.copy(alpha = 0.88f)
+    } else {
+        Color(0xFF141519).copy(alpha = 0.80f)
+    }
+    val glassBorderBrush = Brush.verticalGradient(
+        colors = listOf(
+            Color.White.copy(alpha = if (activeTheme.isLight) 0.50f else 0.24f),
+            activeTheme.borderStroke.copy(alpha = 0.55f)
+        )
+    )
+    val glassSheenBrush = Brush.verticalGradient(
+        colors = listOf(
+            Color.White.copy(alpha = if (activeTheme.isLight) 0.35f else 0.11f),
+            Color.Transparent
+        )
+    )
+
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        activeTheme.background.copy(alpha = if (activeTheme.isLight) 0.55f else 0.72f)
+                    )
+                )
+            )
             .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 20.dp, vertical = 10.dp)
             .testTag("bottom_navigation_bar"),
@@ -1676,44 +1712,50 @@ private fun FloatingGalleryBottomDock(
     ) {
         Surface(
             shape = RoundedCornerShape(50),
-            color = activeTheme.dockBackground,
-            shadowElevation = 14.dp,
+            color = frostedContainerColor,
+            shadowElevation = 18.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(62.dp)
-                .border(1.dp, activeTheme.borderStroke, RoundedCornerShape(50))
+                .border(1.dp, glassBorderBrush, RoundedCornerShape(50))
         ) {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .background(glassSheenBrush)
             ) {
-                FloatingDockTabItem(
-                    tab = GalleryTab.PICS,
-                    selected = currentTab == GalleryTab.PICS,
-                    icon = Icons.Default.PhotoLibrary,
-                    activeTheme = activeTheme,
-                    onClick = { onSelectTab(GalleryTab.PICS) },
-                    modifier = Modifier.weight(1f)
-                )
-                FloatingDockTabItem(
-                    tab = GalleryTab.ALBUMS,
-                    selected = currentTab == GalleryTab.ALBUMS,
-                    icon = Icons.Default.Collections,
-                    activeTheme = activeTheme,
-                    onClick = { onSelectTab(GalleryTab.ALBUMS) },
-                    modifier = Modifier.weight(1f)
-                )
-                FloatingDockTabItem(
-                    tab = GalleryTab.STUDIO,
-                    selected = currentTab == GalleryTab.STUDIO,
-                    icon = Icons.Default.AutoAwesome,
-                    activeTheme = activeTheme,
-                    onClick = { onSelectTab(GalleryTab.STUDIO) },
-                    modifier = Modifier.weight(1f)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FloatingDockTabItem(
+                        tab = GalleryTab.PICS,
+                        selected = currentTab == GalleryTab.PICS,
+                        icon = Icons.Default.PhotoLibrary,
+                        activeTheme = activeTheme,
+                        onClick = { onSelectTab(GalleryTab.PICS) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FloatingDockTabItem(
+                        tab = GalleryTab.ALBUMS,
+                        selected = currentTab == GalleryTab.ALBUMS,
+                        icon = Icons.Default.Collections,
+                        activeTheme = activeTheme,
+                        onClick = { onSelectTab(GalleryTab.ALBUMS) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FloatingDockTabItem(
+                        tab = GalleryTab.STUDIO,
+                        selected = currentTab == GalleryTab.STUDIO,
+                        icon = Icons.Default.AutoAwesome,
+                        activeTheme = activeTheme,
+                        onClick = { onSelectTab(GalleryTab.STUDIO) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }
@@ -1740,16 +1782,32 @@ private fun SelectedPhotosBottomActionDock(
     onClearSelection: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val goldAccent = Color(0xFFF5B700)
+    val accent = activeTheme.primaryAccent
+    val dockContainer = if (activeTheme.isLight) {
+        activeTheme.surface.copy(alpha = 0.96f)
+    } else {
+        Color(0xFF141518).copy(alpha = 0.94f)
+    }
+    val actionInk = if (activeTheme.isLight) activeTheme.textPrimary else Color.White
+    val pillBg = if (activeTheme.isLight) {
+        activeTheme.surfaceVariant.copy(alpha = 0.85f)
+    } else {
+        Color.White.copy(alpha = 0.11f)
+    }
+
     Surface(
         shape = RoundedCornerShape(26.dp),
-        color = Color(0xFF141416),
-        shadowElevation = 14.dp,
+        color = dockContainer,
+        shadowElevation = 18.dp,
         modifier = modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(26.dp))
+            .border(
+                1.dp,
+                if (activeTheme.isLight) activeTheme.borderStroke else Color.White.copy(alpha = 0.16f),
+                RoundedCornerShape(26.dp)
+            )
             .testTag("selected_photos_bottom_dock")
     ) {
         Column(
@@ -1758,7 +1816,7 @@ private fun SelectedPhotosBottomActionDock(
                 .padding(horizontal = 10.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Header Row: Selected Count Badge + Quick Delete & Vault Pills + Done Button
+            // Header Row: Selected Count Badge + Vault & Done Button
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1766,38 +1824,33 @@ private fun SelectedPhotosBottomActionDock(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = goldAccent,
-                        modifier = Modifier.animateContentSize(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = accent,
+                    modifier = Modifier.animateContentSize(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessMedium
                         )
-                    ) {
-                        AnimatedContent(
-                            targetState = selectedCount,
-                            transitionSpec = {
-                                (slideInVertically { height -> height } + fadeIn()) togetherWith
-                                    (slideOutVertically { height -> -height } + fadeOut())
-                            },
-                            label = "selected_count_badge_anim"
-                        ) { count ->
-                            Text(
-                                text = "$count SELECTED",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = 0.6.sp
-                                ),
-                                color = Color.Black,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                            )
-                        }
+                    )
+                ) {
+                    AnimatedContent(
+                        targetState = selectedCount,
+                        transitionSpec = {
+                            (slideInVertically { height -> height } + fadeIn()) togetherWith
+                                (slideOutVertically { height -> -height } + fadeOut())
+                        },
+                        label = "selected_count_badge_anim"
+                    ) { count ->
+                        Text(
+                            text = "$count SELECTED",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 0.6.sp
+                            ),
+                            color = activeTheme.onPrimaryAccent,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
                     }
                 }
 
@@ -1807,87 +1860,61 @@ private fun SelectedPhotosBottomActionDock(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = Color(0xFFE11D48),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable { onDeleteSelectedPermanently() }
-                            .testTag("selected_dock_header_delete_button")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.DeleteForever,
-                                contentDescription = "Delete selected photos from local storage",
-                                tint = Color.White,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Text(
-                                text = "Delete",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold),
-                                color = Color.White
-                            )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = Color.White.copy(alpha = 0.10f),
+                        color = pillBg,
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
                             .clickable { onVaultSelected() }
                             .testTag("selected_dock_vault")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Lock,
                                 contentDescription = "Move to Vault",
-                                tint = goldAccent,
+                                tint = accent,
                                 modifier = Modifier.size(13.dp)
                             )
                             Text(
                                 text = "Vault",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color.White
+                                color = actionInk
                             )
                         }
                     }
 
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = Color.White.copy(alpha = 0.14f),
+                        color = pillBg,
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
                             .clickable { onClearSelection() }
+                            .testTag("selected_dock_done")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Clear selection",
-                                tint = Color.White,
+                                tint = actionInk,
                                 modifier = Modifier.size(13.dp)
                             )
                             Text(
                                 text = "Done",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color.White
+                                color = actionInk
                             )
                         }
                     }
                 }
             }
 
-            // Row 1: Favorite | Collage | Shrink | Rotate | Duplicate
+            // Primary Contextual Multi-Select Bar: Favorite | Share | Add to Album | Delete
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1896,15 +1923,52 @@ private fun SelectedPhotosBottomActionDock(
                 SelectedDockActionItem(
                     icon = Icons.Default.Favorite,
                     label = "Favorite",
-                    tint = Color(0xFFFF4D6D),
+                    tint = accent,
+                    labelColor = actionInk,
                     onClick = onFavoriteSelected,
                     testTag = "selected_dock_favorite",
                     modifier = Modifier.weight(1f)
                 )
                 SelectedDockActionItem(
+                    icon = Icons.Default.Share,
+                    label = "Share",
+                    tint = actionInk,
+                    labelColor = actionInk,
+                    onClick = onShareSelected,
+                    testTag = "selected_dock_share",
+                    modifier = Modifier.weight(1f)
+                )
+                SelectedDockActionItem(
+                    icon = Icons.Default.DriveFileMove,
+                    label = "Add to Album",
+                    tint = actionInk,
+                    labelColor = actionInk,
+                    onClick = onMoveAlbumSelected,
+                    testTag = "selected_dock_album",
+                    modifier = Modifier.weight(1f)
+                )
+                SelectedDockActionItem(
+                    icon = Icons.Default.DeleteForever,
+                    label = "Delete",
+                    tint = Color(0xFFE11D48),
+                    labelColor = actionInk,
+                    onClick = onDeleteSelectedPermanently,
+                    testTag = "selected_dock_delete_local",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // Secondary Quick Tools: Collage | Shrink | Rotate | Duplicate | Trash
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SelectedDockActionItem(
                     icon = Icons.Default.AutoAwesomeMosaic,
                     label = "Collage",
-                    tint = goldAccent,
+                    tint = accent.copy(alpha = 0.9f),
+                    labelColor = activeTheme.textSecondary,
                     onClick = onCollageSelected,
                     testTag = "selected_dock_collage",
                     modifier = Modifier.weight(1f)
@@ -1913,6 +1977,7 @@ private fun SelectedPhotosBottomActionDock(
                     icon = Icons.Default.Compress,
                     label = "Shrink",
                     tint = Color(0xFF10B981),
+                    labelColor = activeTheme.textSecondary,
                     onClick = onShrinkSelected,
                     testTag = "selected_dock_shrink",
                     modifier = Modifier.weight(1f)
@@ -1920,7 +1985,8 @@ private fun SelectedPhotosBottomActionDock(
                 SelectedDockActionItem(
                     icon = Icons.Default.RotateRight,
                     label = "Rotate",
-                    tint = Color.White,
+                    tint = activeTheme.textSecondary,
+                    labelColor = activeTheme.textSecondary,
                     onClick = onRotateSelected,
                     testTag = "selected_dock_rotate",
                     modifier = Modifier.weight(1f)
@@ -1928,49 +1994,19 @@ private fun SelectedPhotosBottomActionDock(
                 SelectedDockActionItem(
                     icon = Icons.Default.ContentCopy,
                     label = "Duplicate",
-                    tint = Color.White,
+                    tint = activeTheme.textSecondary,
+                    labelColor = activeTheme.textSecondary,
                     onClick = onDuplicateSelected,
                     testTag = "selected_dock_duplicate",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            // Row 2: Album | Share | Trash | Delete
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                SelectedDockActionItem(
-                    icon = Icons.Default.DriveFileMove,
-                    label = "Album",
-                    tint = Color.White,
-                    onClick = onMoveAlbumSelected,
-                    testTag = "selected_dock_album",
-                    modifier = Modifier.weight(1f)
-                )
-                SelectedDockActionItem(
-                    icon = Icons.Default.Share,
-                    label = "Share",
-                    tint = Color.White,
-                    onClick = onShareSelected,
-                    testTag = "selected_dock_share",
                     modifier = Modifier.weight(1f)
                 )
                 SelectedDockActionItem(
                     icon = Icons.Default.DeleteOutline,
                     label = "Trash",
                     tint = Color(0xFFFB7185),
+                    labelColor = activeTheme.textSecondary,
                     onClick = onTrashSelected,
                     testTag = "selected_dock_trash",
-                    modifier = Modifier.weight(1f)
-                )
-                SelectedDockActionItem(
-                    icon = Icons.Default.DeleteForever,
-                    label = "Delete",
-                    tint = Color(0xFFE11D48),
-                    onClick = onDeleteSelectedPermanently,
-                    testTag = "selected_dock_delete_local",
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -1983,6 +2019,7 @@ private fun SelectedDockActionItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     tint: Color,
+    labelColor: Color = Color(0xFFE4E4E7),
     onClick: () -> Unit,
     testTag: String,
     modifier: Modifier = Modifier
@@ -2008,7 +2045,7 @@ private fun SelectedDockActionItem(
                 fontWeight = FontWeight.Medium,
                 fontSize = 10.5.sp
             ),
-            color = Color(0xFFE4E4E7),
+            color = labelColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -2077,6 +2114,90 @@ private fun FloatingDockTabItem(
                 maxLines = 1
             )
         }
+    }
+}
+
+private fun resolveShareUri(
+    context: Context,
+    photo: PhotoEntity
+): Uri? {
+    return when {
+        photo.filePath.startsWith("content://") -> Uri.parse(photo.filePath)
+        photo.filePath.startsWith("android.resource://") -> null
+        else -> {
+            val rawPath = if (photo.filePath.startsWith("file://")) {
+                Uri.parse(photo.filePath).path ?: photo.filePath
+            } else {
+                photo.filePath
+            }
+            val file = File(rawPath)
+            if (!file.exists()) return null
+            try {
+                FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+            } catch (_: IllegalArgumentException) {
+                val shareCacheFile = File(context.cacheDir, "share_${file.name}")
+                file.copyTo(shareCacheFile, overwrite = true)
+                FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    shareCacheFile
+                )
+            }
+        }
+    }
+}
+
+private fun shareSelectedPhotos(
+    context: Context,
+    photos: List<PhotoEntity>,
+    onMessage: (String) -> Unit
+) {
+    if (photos.isEmpty()) return
+    if (photos.size == 1) {
+        shareLocalPhoto(context, photos.first(), onMessage)
+        return
+    }
+    try {
+        val uris = ArrayList<Uri>(photos.size)
+        for (photo in photos) {
+            resolveShareUri(context, photo)?.let { uris.add(it) }
+        }
+        if (uris.isEmpty()) {
+            onMessage("Selected files could not be prepared for sharing")
+            return
+        }
+        val hasVideo = photos.any { it.isVideo }
+        val hasImage = photos.any { !it.isVideo }
+        val mime = when {
+            hasVideo && hasImage -> "*/*"
+            hasVideo -> "video/*"
+            else -> "image/*"
+        }
+        val clip = android.content.ClipData.newRawUri(photos.first().title, uris.first()).apply {
+            for (i in 1 until uris.size) {
+                addItem(android.content.ClipData.Item(uris[i]))
+            }
+        }
+        val shareIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = mime
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            putExtra(Intent.EXTRA_SUBJECT, "${uris.size} items from Simple Gallery")
+            clipData = clip
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(shareIntent, "Share ${uris.size} Items").apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (context !is android.app.Activity) {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        }
+        context.startActivity(chooser)
+    } catch (_: Exception) {
+        onMessage("Unable to launch share sheet on this device")
     }
 }
 

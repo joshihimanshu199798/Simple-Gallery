@@ -94,6 +94,11 @@ data class PhotoEntity(
     }
 
     @delegate:androidx.room.Ignore
+    val shortMonthYearText: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        SHORT_MONTH_YEAR_FORMAT.get()!!.format(Date(dateTaken))
+    }
+
+    @delegate:androidx.room.Ignore
     val formattedDuration: String by lazy(LazyThreadSafetyMode.PUBLICATION) {
         val totalSec = (durationMs / 1000L).coerceAtLeast(1L)
         val mins = totalSec / 60L
@@ -137,12 +142,23 @@ data class PhotoEntity(
         private val MONTH_YEAR_FORMAT = object : ThreadLocal<SimpleDateFormat>() {
             override fun initialValue() = SimpleDateFormat("MMMM yyyy", Locale.US)
         }
+        private val SHORT_MONTH_YEAR_FORMAT = object : ThreadLocal<SimpleDateFormat>() {
+            override fun initialValue() = SimpleDateFormat("MMM yyyy", Locale.US)
+        }
         private val NOW_CALENDAR = object : ThreadLocal<java.util.Calendar>() {
             override fun initialValue(): java.util.Calendar = java.util.Calendar.getInstance()
         }
         private val PHOTO_CALENDAR = object : ThreadLocal<java.util.Calendar>() {
             override fun initialValue(): java.util.Calendar = java.util.Calendar.getInstance()
         }
+    }
+
+    fun isScreenshot(): Boolean {
+        return albumName.contains("Screen", ignoreCase = true) ||
+            title.contains("Screenshot", ignoreCase = true) ||
+            fileName.contains("SCREEN", ignoreCase = true) ||
+            filePath.contains("/Screenshots/", ignoreCase = true) ||
+            tagList.any { it.contains("Screenshot", ignoreCase = true) }
     }
 
     fun matchesCategory(category: String): Boolean {
@@ -164,10 +180,18 @@ data class PhotoEntity(
 
         // Smart semantic category matching
         return when (clean.lowercase(Locale.US)) {
-            "screenshots", "screenshot" -> albumName.contains("Screen", ignoreCase = true) ||
-                title.contains("Screenshot", ignoreCase = true) ||
-                fileName.contains("SCREEN", ignoreCase = true) ||
-                tagList.any { it.contains("Screenshot", ignoreCase = true) || it.contains("UI", ignoreCase = true) }
+            "camera" -> !isScreenshot() && !isVideo && (
+                albumName.equals("Camera", ignoreCase = true) ||
+                    albumName.equals("Camera Roll", ignoreCase = true) ||
+                    albumName.contains("DCIM", ignoreCase = true) ||
+                    fileName.startsWith("PXL_", ignoreCase = true) ||
+                    fileName.startsWith("IMG_", ignoreCase = true) ||
+                    fileName.startsWith("DSC", ignoreCase = true) ||
+                    filePath.contains("/DCIM/", ignoreCase = true) ||
+                    filePath.contains("/Camera/", ignoreCase = true) ||
+                    tagList.any { it.equals("Camera", ignoreCase = true) || it.equals("DCIM", ignoreCase = true) }
+            )
+            "screenshots", "screenshot" -> isScreenshot()
             "videos", "video" -> isVideo ||
                 mimeType.startsWith("video/", ignoreCase = true) ||
                 albumName.contains("Video", ignoreCase = true) ||
@@ -280,6 +304,7 @@ enum class GridDensity(val columns: Int, val label: String) {
     TWO(2, "2 Cols"),
     THREE(3, "3 Cols"),
     FOUR(4, "4 Cols"),
+    FIVE(5, "5 Cols"),
     LIST(1, "List")
 }
 

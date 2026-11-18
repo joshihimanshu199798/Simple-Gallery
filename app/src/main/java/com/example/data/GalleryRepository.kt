@@ -31,10 +31,26 @@ class GalleryRepository(
 ) {
     private val syncMutex = Mutex()
     val visiblePhotosFlow: Flow<List<PhotoEntity>> = photoDao.observeVisiblePhotos().map { list ->
-        list.distinctBy { photo -> "${photo.fileName}:${photo.sizeBytes}" }
+        list.asSequence()
+            .filter { photo ->
+                PhotoImageProcessor.isValidMediaFile(
+                    mimeType = photo.mimeType,
+                    fileNameOrPath = photo.fileName.ifBlank { photo.filePath }
+                )
+            }
+            .distinctBy { photo -> "${photo.fileName}:${photo.sizeBytes}" }
+            .toList()
     }.flowOn(Dispatchers.Default)
     val favoritePhotosFlow: Flow<List<PhotoEntity>> = photoDao.observeFavoritePhotos().map { list ->
-        list.distinctBy { photo -> "${photo.fileName}:${photo.sizeBytes}" }
+        list.asSequence()
+            .filter { photo ->
+                PhotoImageProcessor.isValidMediaFile(
+                    mimeType = photo.mimeType,
+                    fileNameOrPath = photo.fileName.ifBlank { photo.filePath }
+                )
+            }
+            .distinctBy { photo -> "${photo.fileName}:${photo.sizeBytes}" }
+            .toList()
     }.flowOn(Dispatchers.Default)
     val vaultPhotosFlow: Flow<List<PhotoEntity>> = photoDao.observeVaultPhotos()
     val trashedPhotosFlow: Flow<List<PhotoEntity>> = photoDao.observeTrashedPhotos()
@@ -166,13 +182,31 @@ class GalleryRepository(
                 val nowSec = System.currentTimeMillis() / 1000L
 
                 val existingPhotos = photoDao.getAllPhotosOnce()
-                val isDeltaSync = !forceRescan && existingPhotos.isNotEmpty() && lastSyncSec > 0L
+                val invalidExistingIds = existingPhotos
+                    .filterNot { photo ->
+                        PhotoImageProcessor.isValidMediaFile(
+                            mimeType = photo.mimeType,
+                            fileNameOrPath = photo.fileName.ifBlank { photo.filePath }
+                        )
+                    }
+                    .map { it.id }
+                if (invalidExistingIds.isNotEmpty()) {
+                    photoDao.deletePhotosByIds(invalidExistingIds)
+                }
+                val validExistingPhotos = if (invalidExistingIds.isEmpty()) {
+                    existingPhotos
+                } else {
+                    val invalidSet = invalidExistingIds.toHashSet()
+                    existingPhotos.filterNot { it.id in invalidSet }
+                }
+
+                val isDeltaSync = !forceRescan && validExistingPhotos.isNotEmpty() && lastSyncSec > 0L
 
                 // Only run full deduplication on initial sync or explicit rescan
-                val activePhotos = if (!isDeltaSync && existingPhotos.size > 1) {
-                    val seenKeys = HashMap<String, PhotoEntity>(existingPhotos.size)
+                val activePhotos = if (!isDeltaSync && validExistingPhotos.size > 1) {
+                    val seenKeys = HashMap<String, PhotoEntity>(validExistingPhotos.size)
                     val duplicateIdsToDelete = mutableListOf<Long>()
-                    for (photo in existingPhotos) {
+                    for (photo in validExistingPhotos) {
                         val canonicalKey = "${photo.fileName}:${photo.sizeBytes}"
                         val existing = seenKeys[canonicalKey]
                         if (existing != null) {
@@ -191,7 +225,7 @@ class GalleryRepository(
                     }
                     seenKeys.values
                 } else {
-                    existingPhotos
+                    validExistingPhotos
                 }
 
                 val existingPaths = HashSet<String>(activePhotos.size * 2)
@@ -324,8 +358,18 @@ class GalleryRepository(
                                 rawDataPath.substringAfterLast('/').ifBlank { "IMG_$mediaId.jpg" }
                             }
 
-                            // Only skip the 10 synthetic starter demo files, NEVER real user photos
+                            // Only skip the synthetic starter demo files, NEVER real user photos
                             if (PhotoImageProcessor.isStarterSamplePath(displayName)) continue
+
+                            val rawMimeType = (if (mimeCol >= 0 && !c.isNull(mimeCol)) c.getString(mimeCol) else null)
+                                ?.trim()
+                                .orEmpty()
+                            if (!PhotoImageProcessor.isValidMediaFile(rawMimeType, displayName.ifBlank { rawDataPath })) {
+                                continue
+                            }
+                            if (sizeCol >= 0 && !c.isNull(sizeCol) && c.getLong(sizeCol) <= 0L) {
+                                continue
+                            }
 
                             // Skip photos that the user explicitly deleted from local storage
                             if (contentUriString in deletedLocalPaths ||
@@ -384,8 +428,8 @@ class GalleryRepository(
                                 .takeIf { it > 0 } ?: 1080
                             val sizeBytes = (if (sizeCol >= 0 && !c.isNull(sizeCol)) c.getLong(sizeCol) else 0L)
                                 .takeIf { it > 0L } ?: 250_000L
-                            val mimeType = (if (mimeCol >= 0 && !c.isNull(mimeCol)) c.getString(mimeCol) else null)
-                                ?: "image/jpeg"
+                            val mimeType = rawMimeType.ifBlank { "image/jpeg" }
+                            val isVideoItem = PhotoImageProcessor.isVideoFile(mimeType, displayName)
 
                             val cleanTitle = displayName.substringBeforeLast(".")
                                 .replace("_", " ")
@@ -396,15 +440,16 @@ class GalleryRepository(
                                 add(bucketName)
                                 add("Device")
                                 when {
-                                    bucketName.contains("Screen", ignoreCase = true) -> add("Architecture")
+                                    bucketName.contains("Screen", ignoreCase = true) -> add("Screenshots")
                                     bucketName.contains("Camera", ignoreCase = true) ||
-                                        bucketName.contains("DCIM", ignoreCase = true) -> add("Portraits")
+                                        bucketName.contains("DCIM", ignoreCase = true) -> add("Camera")
                                     bucketName.contains("Download", ignoreCase = true) -> add("Travel")
                                     bucketName.contains("WhatsApp", ignoreCase = true) ||
                                         bucketName.contains("Family", ignoreCase = true) -> add("Family")
                                     bucketName.contains("Nature", ignoreCase = true) ||
                                         bucketName.contains("Park", ignoreCase = true) -> add("Nature")
                                 }
+                                if (isVideoItem) add("Videos")
                             }.distinct().joinToString(",")
 
                             discoveredAlbums.add(bucketName)
@@ -422,7 +467,8 @@ class GalleryRepository(
                                     mimeType = mimeType,
                                     cameraModel = "Device Camera",
                                     locationTag = bucketName,
-                                    tags = autoTags
+                                    tags = autoTags,
+                                    isVideo = isVideoItem
                                 )
                             )
                             totalAddedOrRepaired++
@@ -439,8 +485,130 @@ class GalleryRepository(
                     }
                 }
 
+                // Also safely query accessible device videos via MediaStore.Video.Media when permitted
+                try {
+                    val videoProjection = arrayOf(
+                        MediaStore.Video.Media._ID,
+                        MediaStore.Video.Media.DISPLAY_NAME,
+                        MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
+                        MediaStore.Video.Media.DATE_TAKEN,
+                        MediaStore.Video.Media.DATE_ADDED,
+                        MediaStore.Video.Media.DATE_MODIFIED,
+                        MediaStore.Video.Media.WIDTH,
+                        MediaStore.Video.Media.HEIGHT,
+                        MediaStore.Video.Media.SIZE,
+                        MediaStore.Video.Media.MIME_TYPE,
+                        MediaStore.Video.Media.DURATION,
+                        MediaStore.Video.Media.DATA
+                    )
+                    val videoSelection = if (isDeltaSync) {
+                        "${MediaStore.Video.Media.DATE_ADDED} >= ? OR ${MediaStore.Video.Media.DATE_MODIFIED} >= ?"
+                    } else null
+                    resolver.query(
+                        MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                        videoProjection,
+                        videoSelection,
+                        selectionArgs,
+                        "${MediaStore.Video.Media.DATE_ADDED} DESC"
+                    )?.use { vc ->
+                        val idCol = vc.getColumnIndex(MediaStore.Video.Media._ID)
+                        if (idCol < 0) return@use
+                        val nameCol = vc.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
+                        val bucketCol = vc.getColumnIndex(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+                        val dateTakenCol = vc.getColumnIndex(MediaStore.Video.Media.DATE_TAKEN)
+                        val dateAddedCol = vc.getColumnIndex(MediaStore.Video.Media.DATE_ADDED)
+                        val dateModCol = vc.getColumnIndex(MediaStore.Video.Media.DATE_MODIFIED)
+                        val widthCol = vc.getColumnIndex(MediaStore.Video.Media.WIDTH)
+                        val heightCol = vc.getColumnIndex(MediaStore.Video.Media.HEIGHT)
+                        val sizeCol = vc.getColumnIndex(MediaStore.Video.Media.SIZE)
+                        val mimeCol = vc.getColumnIndex(MediaStore.Video.Media.MIME_TYPE)
+                        val durationCol = vc.getColumnIndex(MediaStore.Video.Media.DURATION)
+                        val dataCol = vc.getColumnIndex(MediaStore.Video.Media.DATA)
+
+                        while (vc.moveToNext()) {
+                            val mediaId = if (!vc.isNull(idCol)) vc.getLong(idCol) else continue
+                            val videoUri = ContentUris.withAppendedId(
+                                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                                mediaId
+                            ).toString()
+                            if (videoUri in existingPaths || videoUri in deletedLocalPaths || "media_id:$mediaId" in deletedLocalPaths) {
+                                continue
+                            }
+                            val rawDataPath = if (dataCol >= 0 && !vc.isNull(dataCol)) vc.getString(dataCol).orEmpty() else ""
+                            if (rawDataPath.isNotEmpty() && rawDataPath in deletedLocalPaths) continue
+
+                            val displayName = if (nameCol >= 0 && !vc.isNull(nameCol)) {
+                                vc.getString(nameCol) ?: "VID_$mediaId.mp4"
+                            } else {
+                                rawDataPath.substringAfterLast('/').ifBlank { "VID_$mediaId.mp4" }
+                            }
+                            val mimeType = (if (mimeCol >= 0 && !vc.isNull(mimeCol)) vc.getString(mimeCol) else null)
+                                ?.trim()
+                                ?.ifBlank { "video/mp4" } ?: "video/mp4"
+                            if (!PhotoImageProcessor.isValidMediaFile(mimeType, displayName.ifBlank { rawDataPath })) {
+                                continue
+                            }
+                            if (sizeCol >= 0 && !vc.isNull(sizeCol) && vc.getLong(sizeCol) <= 0L) {
+                                continue
+                            }
+
+                            val bucketName = if (bucketCol >= 0 && !vc.isNull(bucketCol)) {
+                                vc.getString(bucketCol)?.trim()?.takeIf { it.isNotEmpty() } ?: "Videos"
+                            } else {
+                                rawDataPath.substringBeforeLast('/', "").substringAfterLast('/').takeIf { it.isNotEmpty() } ?: "Videos"
+                            }
+                            val rawDateTaken = if (dateTakenCol >= 0 && !vc.isNull(dateTakenCol)) vc.getLong(dateTakenCol) else 0L
+                            val rawDateAdded = if (dateAddedCol >= 0 && !vc.isNull(dateAddedCol)) vc.getLong(dateAddedCol) else 0L
+                            val rawDateMod = if (dateModCol >= 0 && !vc.isNull(dateModCol)) vc.getLong(dateModCol) else 0L
+                            val dateTakenMs = when {
+                                rawDateTaken > 1_000_000_000_000L -> rawDateTaken
+                                rawDateTaken > 0L -> rawDateTaken * 1000L
+                                rawDateAdded > 1_000_000_000_000L -> rawDateAdded
+                                rawDateAdded > 0L -> rawDateAdded * 1000L
+                                rawDateMod > 1_000_000_000_000L -> rawDateMod
+                                rawDateMod > 0L -> rawDateMod * 1000L
+                                else -> System.currentTimeMillis()
+                            }
+                            val w = (if (widthCol >= 0 && !vc.isNull(widthCol)) vc.getInt(widthCol) else 0).takeIf { it > 0 } ?: 1080
+                            val h = (if (heightCol >= 0 && !vc.isNull(heightCol)) vc.getInt(heightCol) else 0).takeIf { it > 0 } ?: 1920
+                            val sizeBytes = (if (sizeCol >= 0 && !vc.isNull(sizeCol)) vc.getLong(sizeCol) else 0L).takeIf { it > 0L } ?: 1_200_000L
+                            val durationMs = (if (durationCol >= 0 && !vc.isNull(durationCol)) vc.getLong(durationCol) else 0L).coerceAtLeast(1000L)
+                            val cleanTitle = displayName.substringBeforeLast(".").replace("_", " ").replace("-", " ").ifBlank { "Video $mediaId" }
+
+                            discoveredAlbums.add(bucketName)
+                            existingPaths.add(videoUri)
+                            seenFileKeys.add("$displayName:$sizeBytes")
+                            pendingInsertBatch.add(
+                                PhotoEntity(
+                                    title = cleanTitle,
+                                    filePath = videoUri,
+                                    albumName = bucketName,
+                                    dateTaken = dateTakenMs,
+                                    width = w,
+                                    height = h,
+                                    sizeBytes = sizeBytes,
+                                    mimeType = mimeType,
+                                    cameraModel = "Device Video",
+                                    locationTag = bucketName,
+                                    tags = "$bucketName,Device,Videos",
+                                    isVideo = true,
+                                    durationMs = durationMs
+                                )
+                            )
+                            totalAddedOrRepaired++
+                            if (pendingInsertBatch.size >= 300) {
+                                firstBatchFlushed = true
+                                photoDao.insertPhotos(pendingInsertBatch.toList())
+                                pendingInsertBatch.clear()
+                            }
+                        }
+                    }
+                } catch (_: SecurityException) {
+                } catch (_: Exception) {
+                }
+
                 // Fallback directory walk ONLY when MediaStore returned zero items and DB is empty
-                if (!isDeltaSync && seenMediaIds.isEmpty() && existingPhotos.isEmpty()) {
+                if (!isDeltaSync && seenMediaIds.isEmpty() && validExistingPhotos.isEmpty()) {
                     val publicDirsToScan = listOfNotNull(
                         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
                         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),

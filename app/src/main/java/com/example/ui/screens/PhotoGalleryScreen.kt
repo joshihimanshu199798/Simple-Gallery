@@ -545,13 +545,24 @@ fun PhotoGalleryScreen(
         Manifest.permission.READ_EXTERNAL_STORAGE
     }
 
+    val galleryPrefs = remember(context) {
+        context.getSharedPreferences("simple_gallery_prefs", Context.MODE_PRIVATE)
+    }
     var mediaStoreImages by remember { mutableStateOf<List<MediaStorePhotoItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var selectedBucket by remember { mutableStateOf("All Folders") }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchVisible by remember { mutableStateOf(false) }
-    var gridColumns by remember { mutableIntStateOf(initialColumns.coerceIn(2, 4)) }
+    var gridColumns by remember {
+        mutableIntStateOf(
+            if (galleryPrefs.contains("photo_gallery_columns")) {
+                galleryPrefs.getInt("photo_gallery_columns", initialColumns).coerceIn(2, 4)
+            } else {
+                initialColumns.coerceIn(2, 4)
+            }
+        )
+    }
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var isSelectionMode by remember { mutableStateOf(false) }
     var itemsPendingDeletion by remember { mutableStateOf<List<MediaStorePhotoItem>>(emptyList()) }
@@ -878,11 +889,13 @@ fun PhotoGalleryScreen(
                                                 .height(38.dp)
                                                 .clip(RoundedCornerShape(50))
                                                 .clickable {
-                                                    gridColumns = when (gridColumns) {
+                                                    val nextCols = when (gridColumns) {
                                                         2 -> 3
                                                         3 -> 4
                                                         else -> 2
                                                     }
+                                                    gridColumns = nextCols
+                                                    galleryPrefs.edit().putInt("photo_gallery_columns", nextCols).commit()
                                                 }
                                                 .testTag("photo_gallery_column_toggle")
                                         ) {

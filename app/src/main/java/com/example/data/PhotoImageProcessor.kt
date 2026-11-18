@@ -56,6 +56,50 @@ object PhotoImageProcessor {
         return name in STARTER_SAMPLE_FILENAMES
     }
 
+    private val SUPPORTED_IMAGE_EXTENSIONS: Set<String> = setOf(
+        "jpg", "jpeg", "png", "webp", "heic", "heif", "gif", "bmp", "avif", "dng", "raw", "arw", "cr2", "nef"
+    )
+
+    private val SUPPORTED_VIDEO_EXTENSIONS: Set<String> = setOf(
+        "mp4", "mov", "mkv", "webm", "3gp", "m4v", "avi"
+    )
+
+    private val BLOCKED_NON_MEDIA_EXTENSIONS: Set<String> = setOf(
+        "zip", "rar", "7z", "tar", "gz", "apk", "aab", "xapk", "pdf", "doc", "docx",
+        "xls", "xlsx", "ppt", "pptx", "txt", "json", "xml", "html", "htm", "csv",
+        "nomedia", "tmp", "part", "crdownload", "bin", "exe", "iso", "mp3", "m4a", "wav", "ogg", "flac"
+    )
+
+    fun isVideoFile(mimeType: String?, fileNameOrPath: String?): Boolean {
+        val mime = mimeType?.trim()?.lowercase().orEmpty()
+        if (mime.startsWith("video/")) return true
+        val cleanName = fileNameOrPath?.substringAfterLast('/')?.substringBefore('?').orEmpty()
+        val ext = if ('.' in cleanName) cleanName.substringAfterLast('.').lowercase() else ""
+        return ext in SUPPORTED_VIDEO_EXTENSIONS
+    }
+
+    fun isValidMediaFile(mimeType: String?, fileNameOrPath: String?): Boolean {
+        val cleanPath = fileNameOrPath?.trim().orEmpty()
+        val fileName = cleanPath.substringAfterLast('/').substringBefore('?')
+        if (fileName.startsWith(".trashed-", ignoreCase = true) ||
+            fileName.equals(".nomedia", ignoreCase = true)
+        ) {
+            return false
+        }
+        val ext = if ('.' in fileName) fileName.substringAfterLast('.').lowercase() else ""
+        if (ext in BLOCKED_NON_MEDIA_EXTENSIONS) return false
+
+        val mime = mimeType?.trim()?.lowercase().orEmpty()
+        if (mime.isNotEmpty() && mime != "*/*" && mime != "application/octet-stream") {
+            return when {
+                mime.startsWith("image/") -> mime != "image/svg+xml" && mime != "image/x-icon"
+                mime.startsWith("video/") -> true
+                else -> false
+            }
+        }
+        return ext in SUPPORTED_IMAGE_EXTENSIONS || ext in SUPPORTED_VIDEO_EXTENSIONS
+    }
+
     fun resolveCoilModel(pathOrUri: String): Any {
         return if (
             pathOrUri.startsWith("content://") ||

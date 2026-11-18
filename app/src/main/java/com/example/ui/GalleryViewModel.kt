@@ -55,8 +55,10 @@ data class GalleryFilterState(
     val selectedTag: String = "All",
     val selectedAlbumName: String? = null,
     val sortOption: SortOption = SortOption.DATE_DESC,
-    val gridDensity: GridDensity = GridDensity.TWO,
-    val isSquareGrid: Boolean = false
+    val gridDensity: GridDensity = GridDensity.THREE,
+    val isSquareGrid: Boolean = true,
+    val hideScreenshotsFromMainFeed: Boolean = false,
+    val groupByRelativeDate: Boolean = true
 )
 
 class GalleryViewModel(
@@ -85,11 +87,15 @@ class GalleryViewModel(
 
     private val _baseTheme = MutableStateFlow(
         AppThemeCatalog.findById(
-            prefs.getString("active_theme_id_v3", "warm_editorial_light") ?: "warm_editorial_light"
+            prefs.getString("active_theme_id_v3", "oled_pitch_black_dark") ?: "oled_pitch_black_dark"
         )
     )
 
-    private val _layoutStyleOverride = MutableStateFlow<GalleryLayoutStyle?>(null)
+    private val _layoutStyleOverride = MutableStateFlow(
+        prefs.getString("preferred_layout_style_override", null)?.let { savedName ->
+            GalleryLayoutStyle.entries.firstOrNull { it.name == savedName }
+        }
+    )
     val layoutStyleOverride: StateFlow<GalleryLayoutStyle?> = _layoutStyleOverride.asStateFlow()
 
     val activeTheme: StateFlow<CompleteUiThemeSpec> = combine(
@@ -126,7 +132,23 @@ class GalleryViewModel(
     private val _isWatermarkModalOpen = MutableStateFlow(false)
     val isWatermarkModalOpen: StateFlow<Boolean> = _isWatermarkModalOpen.asStateFlow()
 
-    private val _filterState = MutableStateFlow(GalleryFilterState())
+    private val _filterState = MutableStateFlow(
+        GalleryFilterState(
+            sortOption = prefs.getString("preferred_photo_sort", SortOption.DATE_DESC.name)
+                ?.let { savedSort -> SortOption.entries.firstOrNull { it.name == savedSort } }
+                ?: SortOption.DATE_DESC,
+            gridDensity = when (prefs.getInt("preferred_grid_columns", 3)) {
+                1 -> GridDensity.LIST
+                2 -> GridDensity.TWO
+                4 -> GridDensity.FOUR
+                5 -> GridDensity.FIVE
+                else -> GridDensity.THREE
+            },
+            isSquareGrid = prefs.getBoolean("preferred_square_grid", true),
+            hideScreenshotsFromMainFeed = prefs.getBoolean("hide_screenshots_main_feed", false),
+            groupByRelativeDate = prefs.getBoolean("preferred_group_by_date", true)
+        )
+    )
     val filterState: StateFlow<GalleryFilterState> = _filterState.asStateFlow()
 
     private val _selectedPhotoIds = MutableStateFlow<Set<Long>>(emptySet())
@@ -191,7 +213,11 @@ class GalleryViewModel(
     val trashedPhotos: StateFlow<List<PhotoEntity>> = repository.trashedPhotosFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _albumSortOption = MutableStateFlow(AlbumSortOption.DATE_DESC)
+    private val _albumSortOption = MutableStateFlow(
+        prefs.getString("preferred_album_sort", AlbumSortOption.DATE_DESC.name)
+            ?.let { saved -> AlbumSortOption.entries.firstOrNull { it.name == saved } }
+            ?: AlbumSortOption.DATE_DESC
+    )
     val albumSortOption: StateFlow<AlbumSortOption> = _albumSortOption.asStateFlow()
 
     val albums: StateFlow<List<AlbumSummary>> = combine(
@@ -211,6 +237,7 @@ class GalleryViewModel(
 
     fun updateAlbumSortOption(option: AlbumSortOption) {
         _albumSortOption.value = option
+        prefs.edit().putString("preferred_album_sort", option.name).commit()
     }
 
     val memories: StateFlow<List<MemoryEntryEntity>> = repository.memoriesFlow
@@ -238,11 +265,19 @@ class GalleryViewModel(
         val hasAlbumFilter = filter.selectedAlbumName != null
         val hasTagFilter = filter.selectedTag != "All" && filter.selectedTag.isNotBlank()
         val hasSearch = query.isNotEmpty()
+        val shouldHideScreenshots = filter.hideScreenshotsFromMainFeed &&
+            !hasAlbumFilter &&
+            !filter.selectedTag.equals("Screenshots", ignoreCase = true) &&
+            !filter.selectedTag.equals("Screenshot", ignoreCase = true)
 
-        val filtered = if (!hasAlbumFilter && !hasTagFilter && !hasSearch) {
+        val filtered = if (!hasAlbumFilter && !hasTagFilter && !hasSearch && !shouldHideScreenshots) {
             photos
         } else {
             photos.filter { photo ->
+                if (shouldHideScreenshots && photo.isScreenshot()) {
+                    return@filter false
+                }
+
                 val matchesAlbum = !hasAlbumFilter ||
                     photo.albumName.equals(filter.selectedAlbumName, ignoreCase = true)
 
@@ -367,7 +402,10 @@ class GalleryViewModel(
     fun selectCompleteTheme(theme: CompleteUiThemeSpec) {
         _baseTheme.value = theme
         _layoutStyleOverride.value = null
-        prefs.edit().putString("active_theme_id_v3", theme.id).apply()
+        prefs.edit()
+            .putString("active_theme_id_v3", theme.id)
+            .remove("preferred_layout_style_override")
+            .commit()
         postMessage("Applied UI Theme: ${theme.name}")
     }
 
@@ -387,34 +425,56 @@ class GalleryViewModel(
         val nextIdx = (styles.indexOf(currentStyle) + 1) % styles.size
         val nextStyle = styles[nextIdx]
         _layoutStyleOverride.value = nextStyle
+        prefs.edit().putString("preferred_layout_style_override", nextStyle.name).commit()
         postMessage("Switched Gallery Layout: ${nextStyle.displayName}")
     }
 
     fun setLayoutStyleOverride(style: GalleryLayoutStyle) {
         _layoutStyleOverride.value = style
+        prefs.edit().putString("preferred_layout_style_override", style.name).commit()
         postMessage("Layout Style: ${style.displayName}")
     }
 
     fun setGridDensity(density: GridDensity) {
         _filterState.update { it.copy(gridDensity = density) }
+        prefs.edit().putInt("preferred_grid_columns", density.columns).commit()
         postMessage("Photo Grid: ${density.label}")
+    }
+
+    fun toggleHideScreenshotsFromMainFeed() {
+        val next = !_filterState.value.hideScreenshotsFromMainFeed
+        _filterState.update { it.copy(hideScreenshotsFromMainFeed = next) }
+        prefs.edit().putBoolean("hide_screenshots_main_feed", next).commit()
+        postMessage(
+            if (next) "Screenshots hidden from Main Photos feed"
+            else "Showing Screenshots in Main Photos feed"
+        )
+    }
+
+    fun toggleGroupByRelativeDate() {
+        val next = !_filterState.value.groupByRelativeDate
+        _filterState.update { it.copy(groupByRelativeDate = next) }
+        prefs.edit().putBoolean("preferred_group_by_date", next).commit()
+        postMessage(if (next) "Date Grouping: ON" else "Date Grouping: OFF")
     }
 
     fun setSquareGridMode(isSquare: Boolean) {
         _filterState.update { it.copy(isSquareGrid = isSquare) }
+        prefs.edit().putBoolean("preferred_square_grid", isSquare).commit()
         postMessage(if (isSquare) "Grid Ratio: 1:1 Square" else "Grid Ratio: Adaptive")
     }
 
     /**
-     * Pinch-out (zoomIn = true) -> fewer columns / larger cards (4 -> 3 -> 2 -> 1)
-     * Pinch-in (zoomIn = false) -> more columns / compact grid (1 -> 2 -> 3 -> 4)
+     * Pinch-out (zoomIn = true) -> fewer columns / larger cards (5 -> 4 -> 3 -> 2 -> 1)
+     * Pinch-in (zoomIn = false) -> more columns / compact grid (1 -> 2 -> 3 -> 4 -> 5)
      */
     fun pinchAdjustGridStyle(zoomIn: Boolean) {
         val orderedDensities = listOf(
             GridDensity.LIST,   // 1 col
             GridDensity.TWO,    // 2 cols
             GridDensity.THREE,  // 3 cols
-            GridDensity.FOUR    // 4 cols
+            GridDensity.FOUR,   // 4 cols
+            GridDensity.FIVE    // 5 cols
         )
         val currentDensity = _filterState.value.gridDensity
         val currentIdx = orderedDensities.indexOf(currentDensity).coerceAtLeast(1)
@@ -423,6 +483,7 @@ class GalleryViewModel(
             if (currentIdx > 0) {
                 val nextDensity = orderedDensities[currentIdx - 1]
                 _filterState.update { it.copy(gridDensity = nextDensity) }
+                prefs.edit().putInt("preferred_grid_columns", nextDensity.columns).commit()
                 postMessage("Photo Grid: ${nextDensity.label}")
             }
         } else {
@@ -430,6 +491,7 @@ class GalleryViewModel(
             if (currentIdx < orderedDensities.lastIndex) {
                 val nextDensity = orderedDensities[currentIdx + 1]
                 _filterState.update { it.copy(gridDensity = nextDensity) }
+                prefs.edit().putInt("preferred_grid_columns", nextDensity.columns).commit()
                 postMessage("Photo Grid: ${nextDensity.label}")
             }
         }
@@ -931,12 +993,13 @@ class GalleryViewModel(
 
     fun updateSortOption(option: SortOption) {
         _filterState.update { it.copy(sortOption = option) }
+        prefs.edit().putString("preferred_photo_sort", option.name).commit()
     }
 
     fun cycleGridDensity() {
         val values = GridDensity.entries
         val nextIndex = (values.indexOf(_filterState.value.gridDensity) + 1) % values.size
-        _filterState.update { it.copy(gridDensity = values[nextIndex]) }
+        setGridDensity(values[nextIndex])
     }
 
     fun toggleSelectionMode() {
@@ -960,6 +1023,25 @@ class GalleryViewModel(
         _isSelectionMode.value = true
         _selectedPhotoIds.value = photos.map { it.id }.toSet()
         postMessage("Selected all ${photos.size} photos")
+    }
+
+    fun toggleDateGroupSelection(groupPhotos: List<PhotoEntity>, groupTitle: String) {
+        if (groupPhotos.isEmpty()) return
+        val groupIds = groupPhotos.map { it.id }.toSet()
+        val current = _selectedPhotoIds.value
+        val allAlreadySelected = groupIds.all { it in current }
+        if (allAlreadySelected) {
+            val next = current - groupIds
+            _selectedPhotoIds.value = next
+            if (next.isEmpty()) {
+                _isSelectionMode.value = false
+            }
+            postMessage("Deselected $groupTitle (${groupIds.size})")
+        } else {
+            _isSelectionMode.value = true
+            _selectedPhotoIds.value = current + groupIds
+            postMessage("Selected ${groupIds.size} item${if (groupIds.size > 1) "s" else ""} from $groupTitle")
+        }
     }
 
     fun selectFavoritePhotos(photos: List<PhotoEntity>) {
@@ -1344,8 +1426,14 @@ class GalleryViewModel(
         viewModelScope.launch {
             repository.setFavoriteBatch(ids, favorite)
             clearSelection()
-            postMessage("${ids.size} photo(s) ${if (favorite) "favorited" else "unfavorited"}")
+            postMessage("${ids.size} photo(s) ${if (favorite) "favorited ♥" else "unfavorited"}")
         }
+    }
+
+    fun toggleBatchFavoriteSelected(selectedPhotos: List<PhotoEntity>) {
+        if (selectedPhotos.isEmpty()) return
+        val nextFavorite = !selectedPhotos.all { it.isFavorite }
+        batchFavoriteSelected(nextFavorite)
     }
 
     fun movePhotosToAlbum(ids: List<Long>, targetAlbum: String, copyInsteadOfMove: Boolean) {
